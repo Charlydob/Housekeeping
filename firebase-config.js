@@ -11,7 +11,7 @@ window.FIREBASE_CONFIG = {
 
   // Necesario para Realtime Database.
   // Si aún no creaste la base de datos, déjalo vacío hasta crearla.
-  databaseURL: ""
+  databaseURL: "https://housekeeping-e295d-default-rtdb.europe-west1.firebasedatabase.app"
 };
 
 // Ruta donde se guardarán las habitaciones.
