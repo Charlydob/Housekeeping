@@ -43,6 +43,7 @@
     <section class="toolbar" aria-label="Acciones">
       <button id="addRoomButton" class="primary-btn" type="button">+ Habitación</button>
       <button id="templateButton" class="soft-btn" type="button">⚙️ Plantilla</button>
+      <button id="statsButton" class="soft-btn" type="button">📊 Estadísticas</button>
       <button id="deleteHotelButton" class="soft-danger-btn" type="button">Borrar hotel</button>
     </section>
 
@@ -66,6 +67,18 @@
         </label>
         <button class="mini-btn add" type="submit">Añadir</button>
       </form>
+    </section>
+
+    <section id="statsPanel" class="template-panel hidden stats-panel" aria-label="Estadísticas">
+      <div class="panel-head">
+        <div>
+          <p class="label">Rendimiento</p>
+          <h2>Estadísticas</h2>
+        </div>
+        <button id="closeStatsButton" class="icon-btn small" type="button" aria-label="Cerrar">×</button>
+      </div>
+
+      <div id="statsContent" class="stats-content"></div>
     </section>
 
     <main id="rooms" class="rooms" aria-label="Habitaciones"></main>
