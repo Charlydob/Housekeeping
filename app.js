@@ -54,6 +54,16 @@ let firebaseSaving = false;
 const pendingBlockResets = new Map();
 let sessionTickerId = null;
 let roomEditContext = null;
+let currentView = "rooms";
+const statsSectionState = {
+  busiest: false,
+  byRoom: false,
+  byGroup: false,
+  roomActivity: false,
+  recentSessions: false,
+  recentStatus: false,
+  timeHeavy: false
+};
 
 const $hotelTitle = document.querySelector("#hotelTitle");
 const $globalPercent = document.querySelector("#globalPercent");
@@ -62,14 +72,17 @@ const $progressHint = document.querySelector("#progressHint");
 const $todoCount = document.querySelector("#todoCount");
 const $occupiedCount = document.querySelector("#occupiedCount");
 const $cleanCount = document.querySelector("#cleanCount");
+const $roomsView = document.querySelector("#roomsView");
+const $statsView = document.querySelector("#statsView");
 const $hotelTabs = document.querySelector("#hotelTabs");
 const $rooms = document.querySelector("#rooms");
 const $statusMessage = document.querySelector("#statusMessage");
 const $templatePanel = document.querySelector("#templatePanel");
-const $statsPanel = document.querySelector("#statsPanel");
-const $roomEditModal = document.querySelector("#roomEditModal");
-const $taskEditorList = document.querySelector("#taskEditorList");
+const $templateModal = document.querySelector("#templateModal");
 const $statsContent = document.querySelector("#statsContent");
+const $roomEditModal = document.querySelector("#roomEditModal");
+const $hotelModal = document.querySelector("#hotelModal");
+const $taskEditorList = document.querySelector("#taskEditorList");
 const $addTaskForm = document.querySelector("#addTaskForm");
 const $taskEmojiInput = document.querySelector("#taskEmojiInput");
 const $taskLabelInput = document.querySelector("#taskLabelInput");
@@ -79,15 +92,22 @@ const $roomEditHotelIdInput = document.querySelector("#roomEditHotelIdInput");
 const $roomEditIdInput = document.querySelector("#roomEditIdInput");
 const $roomEditNumberInput = document.querySelector("#roomEditNumberInput");
 const $roomEditGroupInput = document.querySelector("#roomEditGroupInput");
+const $roomEditTitle = document.querySelector("#roomEditTitle");
+const $saveRoomEditButton = document.querySelector("#saveRoomEditButton");
+const $hotelForm = document.querySelector("#hotelForm");
+const $hotelNameInput = document.querySelector("#hotelNameInput");
+const $hotelCopyTemplateInput = document.querySelector("#hotelCopyTemplateInput");
 
 const $addHotelButton = document.querySelector("#addHotelButton");
 const $deleteHotelButton = document.querySelector("#deleteHotelButton");
 const $addRoomButton = document.querySelector("#addRoomButton");
 const $templateButton = document.querySelector("#templateButton");
 const $statsButton = document.querySelector("#statsButton");
+const $backToRoomsButton = document.querySelector("#backToRoomsButton");
 const $closeTemplateButton = document.querySelector("#closeTemplateButton");
-const $closeStatsButton = document.querySelector("#closeStatsButton");
+const $closeHotelModalButton = document.querySelector("#closeHotelModalButton");
 const $closeRoomEditModalButton = document.querySelector("#closeRoomEditModalButton");
+const $cancelHotelModalButton = document.querySelector("#cancelHotelModalButton");
 const $cancelRoomEditButton = document.querySelector("#cancelRoomEditButton");
 const $resetButton = document.querySelector("#resetButton");
 const $syncButton = document.querySelector("#syncButton");
@@ -106,19 +126,27 @@ function bindGlobalEvents() {
   $addHotelButton.addEventListener("click", addHotel);
   $deleteHotelButton.addEventListener("click", deleteCurrentHotel);
   $addRoomButton.addEventListener("click", addRoom);
-  $templateButton.addEventListener("click", () => $templatePanel.classList.toggle("hidden"));
-  $statsButton.addEventListener("click", () => $statsPanel.classList.toggle("hidden"));
-  $closeTemplateButton.addEventListener("click", () => $templatePanel.classList.add("hidden"));
-  $closeStatsButton.addEventListener("click", () => $statsPanel.classList.add("hidden"));
+  $templateButton.addEventListener("click", openTemplateModal);
+  $statsButton.addEventListener("click", openStatsView);
+  $backToRoomsButton.addEventListener("click", openRoomsView);
+  $closeTemplateButton.addEventListener("click", closeTemplateModal);
+  $closeHotelModalButton.addEventListener("click", closeHotelModal);
   $closeRoomEditModalButton.addEventListener("click", closeRoomEditModal);
+  $cancelHotelModalButton.addEventListener("click", closeHotelModal);
   $cancelRoomEditButton.addEventListener("click", closeRoomEditModal);
-  $roomEditModal.addEventListener("click", event => {
-    if (event.target === $roomEditModal) closeRoomEditModal();
+  [$templateModal, $roomEditModal, $hotelModal].forEach(modal => {
+    modal.addEventListener("click", event => {
+      if (event.target !== modal) return;
+      if (modal === $templateModal) closeTemplateModal();
+      if (modal === $roomEditModal) closeRoomEditModal();
+      if (modal === $hotelModal) closeHotelModal();
+    });
   });
   $resetButton.addEventListener("click", resetLocalData);
   $syncButton.addEventListener("click", syncNow);
   $addTaskForm.addEventListener("submit", addTask);
   $roomEditForm.addEventListener("submit", submitRoomEdit);
+  $hotelForm.addEventListener("submit", submitHotelForm);
 }
 
 function setupFirebase() {
@@ -348,9 +376,45 @@ async function saveAll(message = "Guardado.") {
   }
 }
 
+function openRoomsView() {
+  currentView = "rooms";
+  render();
+}
+
+function openStatsView() {
+  currentView = "stats";
+  render();
+}
+
+function openTemplateModal() {
+  $templateModal.classList.remove("hidden");
+  $templateModal.setAttribute("aria-hidden", "false");
+}
+
+function closeTemplateModal() {
+  $templateModal.classList.add("hidden");
+  $templateModal.setAttribute("aria-hidden", "true");
+}
+
+function openHotelModal() {
+  $hotelForm.reset();
+  $hotelCopyTemplateInput.checked = true;
+  $hotelModal.classList.remove("hidden");
+  $hotelModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => $hotelNameInput.focus(), 0);
+}
+
+function closeHotelModal() {
+  $hotelForm.reset();
+  $hotelModal.classList.add("hidden");
+  $hotelModal.setAttribute("aria-hidden", "true");
+}
+
 function render() {
   const hotel = getCurrentHotel();
   $hotelTitle.textContent = hotel.name;
+  $roomsView.classList.toggle("hidden", currentView !== "rooms");
+  $statsView.classList.toggle("hidden", currentView !== "stats");
   renderHotelTabs();
   renderSummary(hotel);
   renderTemplatePanel(hotel);
@@ -444,139 +508,212 @@ function renderTemplatePanel(hotel) {
 
 function renderStatsPanel() {
   const stats = calculateStats();
+  const topBusyRoom = stats.mostBusyRooms[0];
 
   $statsContent.innerHTML = `
     <div class="stats-grid">
       <article class="stats-card stats-hero">
-        <p class="label">Media general</p>
-        <div class="stats-hero-values">
-          <div>
+        <p class="label">KPIs</p>
+        <div class="stats-kpi-grid">
+          <div class="stats-kpi">
             <strong>${formatDuration(stats.overview.cleaningAverageSeconds)}</strong>
-            <span>Limpieza completa</span>
+            <span>Media limpieza</span>
           </div>
-          <div>
+          <div class="stats-kpi">
             <strong>${formatDuration(stats.overview.refreshAverageSeconds)}</strong>
-            <span>Repaso ocupada</span>
+            <span>Media repaso</span>
+          </div>
+          <div class="stats-kpi">
+            <strong>${stats.overview.totalSessions}</strong>
+            <span>Sesiones</span>
+          </div>
+          <div class="stats-kpi">
+            <strong>${topBusyRoom ? escapeHtml(topBusyRoom.roomLabel) : "—"}</strong>
+            <span>Más concurrida</span>
           </div>
         </div>
       </article>
 
-      <article class="stats-card">
-        <p class="label">Volumen</p>
-        <div class="stats-kpis">
-          <div><strong>${stats.overview.totalSessions}</strong><span>sesiones</span></div>
-          <div><strong>${stats.overview.totalCleaningRuns}</strong><span>veces LIMPIAR</span></div>
-          <div><strong>${stats.overview.totalRefreshRuns}</strong><span>veces OCUPADA</span></div>
+      <article class="stats-card stats-manage-card">
+        <div class="stats-manage-head">
+          <div>
+            <p class="label">Gestión</p>
+            <strong>Registros</strong>
+          </div>
         </div>
-      </article>
-
-      <article class="stats-card">
-        <p class="label">Gestión</p>
-        <div class="stats-actions">
+        <div class="stats-actions compact">
           <button class="soft-btn stats-action-btn" type="button" data-clear-log-type="time">Borrar sesiones</button>
           <button class="soft-btn stats-action-btn" type="button" data-clear-log-type="status">Borrar cambios</button>
-          <button class="soft-danger-btn stats-action-btn" type="button" data-clear-log-type="all">Borrar todos los registros</button>
+          <button class="soft-danger-btn stats-action-btn" type="button" data-clear-log-type="all">Borrar todo</button>
         </div>
       </article>
     </div>
 
-    ${renderStatsListSection("Media por habitación", stats.byRoom, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.roomLabel)}</strong>
-          <small>${escapeHtml(item.groupLabel)}</small>
+    ${renderStatsCompactSection({
+      key: "busiest",
+      title: "Habitaciones más concurridas",
+      items: stats.mostBusyRooms,
+      collapsedByDefault: false,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.roomLabel)}</strong>
+            <small>${item.refreshCount} repasos ocupada</small>
+          </div>
+          <span>${item.cleaningCount} veces</span>
         </div>
-        <span>${formatDuration(item.averageSeconds)}</span>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Media por grupo", stats.byGroup, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.groupLabel)}</strong>
-          <small>${item.sessionCount} sesiones</small>
+    ${renderStatsCompactSection({
+      key: "byRoom",
+      title: "Media por habitación",
+      items: stats.byRoom,
+      collapsedByDefault: false,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.roomLabel)}</strong>
+            <small>${escapeHtml(item.groupLabel)}</small>
+          </div>
+          <span class="${item.averageSeconds > stats.overview.cleaningAverageSeconds ? "slow" : "fast"}">${formatDuration(item.averageSeconds)}</span>
         </div>
-        <span>${formatDuration(item.averageSeconds)}</span>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Habitaciones más concurridas", stats.mostBusyRooms, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.roomLabel)}</strong>
-          <small>${item.refreshCount} repasos ocupada</small>
+    ${renderStatsCompactSection({
+      key: "byGroup",
+      title: "Media por grupo",
+      items: stats.byGroup,
+      collapsedByDefault: false,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.groupLabel)}</strong>
+            <small>${item.sessionCount} sesiones</small>
+          </div>
+          <span>${formatDuration(item.averageSeconds)}</span>
         </div>
-        <span>${item.cleaningCount} veces</span>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Actividad por habitación", stats.roomActivity, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.roomLabel)}</strong>
-          <small>${escapeHtml(item.groupLabel)}</small>
+    ${renderStatsCompactSection({
+      key: "timeHeavy",
+      title: "Habitaciones que más tiempo consumen",
+      items: stats.timeHeavyRooms,
+      collapsedByDefault: true,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.roomLabel)}</strong>
+            <small>${item.sessionCount} sesiones</small>
+          </div>
+          <span>${formatDuration(item.totalSeconds)}</span>
         </div>
-        <span>${item.cleaningCount} LIMPIAR · ${item.refreshCount} OCUPADA</span>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Habitaciones que más tiempo consumen", stats.timeHeavyRooms, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.roomLabel)}</strong>
-          <small>${item.sessionCount} sesiones</small>
+    ${renderStatsCompactSection({
+      key: "roomActivity",
+      title: "Actividad por habitación",
+      items: stats.roomActivity,
+      collapsedByDefault: true,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.roomLabel)}</strong>
+            <small>${escapeHtml(item.groupLabel)}</small>
+          </div>
+          <span>${item.cleaningCount} L · ${item.refreshCount} O</span>
         </div>
-        <span>${formatDuration(item.totalSeconds)}</span>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Histórico reciente", stats.recentSessions, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.dateLabel)} · ${escapeHtml(item.roomLabel)}</strong>
-          <small>${escapeHtml(item.hotelName)} · ${escapeHtml(item.workTypeLabel)}</small>
+    ${renderStatsCompactSection({
+      key: "recentSessions",
+      title: "Sesiones recientes",
+      items: stats.recentSessions,
+      collapsedByDefault: true,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.dateLabel)}</strong>
+            <small>${escapeHtml(item.roomLabel)} · ${escapeHtml(item.workTypeLabel)}</small>
+          </div>
+          <div class="stats-row-actions">
+            <span>${escapeHtml(item.durationReadable)}</span>
+            <button class="tiny-btn stats-delete-btn" type="button" data-delete-time-log-id="${escapeHtml(item.id)}" aria-label="Borrar sesión">×</button>
+          </div>
         </div>
-        <div class="stats-row-actions">
-          <span>${escapeHtml(item.durationReadable)}</span>
-          <button class="tiny-btn stats-delete-btn" type="button" data-delete-time-log-id="${escapeHtml(item.id)}" aria-label="Borrar sesión">×</button>
-        </div>
-      </div>
-    `)}
+      `
+    })}
 
-    ${renderStatsListSection("Cambios de estado recientes", stats.recentStatusLogs, item => `
-      <div class="stats-list-row">
-        <div>
-          <strong>${escapeHtml(item.dateLabel)} · ${escapeHtml(item.roomLabel)}</strong>
-          <small>${escapeHtml(item.transitionLabel)}</small>
+    ${renderStatsCompactSection({
+      key: "recentStatus",
+      title: "Cambios de estado recientes",
+      items: stats.recentStatusLogs,
+      collapsedByDefault: true,
+      renderItem: item => `
+        <div class="stats-list-row compact">
+          <div>
+            <strong>${escapeHtml(item.dateLabel)}</strong>
+            <small>${escapeHtml(item.roomLabel)} · ${escapeHtml(item.transitionLabel)}</small>
+          </div>
+          <div class="stats-row-actions">
+            <span>${escapeHtml(item.toStatus || "SIN ESTADO")}</span>
+            <button class="tiny-btn stats-delete-btn" type="button" data-delete-status-log-id="${escapeHtml(item.id)}" aria-label="Borrar cambio de estado">×</button>
+          </div>
         </div>
-        <div class="stats-row-actions">
-          <span>${escapeHtml(item.toStatus || "SIN ESTADO")}</span>
-          <button class="tiny-btn stats-delete-btn" type="button" data-delete-status-log-id="${escapeHtml(item.id)}" aria-label="Borrar cambio de estado">×</button>
-        </div>
-      </div>
-    `)}
+      `
+    })}
   `;
 
   bindStatsEvents();
 }
 
-function renderStatsListSection(title, items, template, actionsHtml = "") {
-  const content = items.length
-    ? items.map(template).join("")
+function renderStatsCompactSection({ key, title, items, renderItem, collapsedByDefault }) {
+  const hasMore = items.length > 3;
+  const visibleItems = hasMore && !statsSectionState[key] ? items.slice(0, 3) : items;
+  const toggleLabel = statsSectionState[key] ? "Ver menos" : "Ver más";
+
+  const content = visibleItems.length
+    ? visibleItems.map(renderItem).join("")
     : `<p class="stats-empty">Todavía no hay datos suficientes.</p>`;
 
   return `
-    <section class="stats-section">
-      <div class="stats-section-head">
-        <h3>${escapeHtml(title)}</h3>
-        ${actionsHtml}
+    <section class="stats-section ${collapsedByDefault ? "collapsed" : ""}" data-stats-section="${escapeHtml(key)}">
+      <button class="stats-section-toggle" type="button" data-toggle-stats-section="${escapeHtml(key)}" aria-expanded="${collapsedByDefault ? "false" : "true"}">
+        <span>${escapeHtml(title)}</span>
+        <span>${collapsedByDefault ? "Abrir" : "Ocultar"}</span>
+      </button>
+      <div class="stats-section-body ${collapsedByDefault ? "hidden" : ""}" data-stats-body="${escapeHtml(key)}">
+        <div class="stats-list">${content}</div>
+        ${hasMore ? `<button class="stats-more-btn" type="button" data-expand-stats-list="${escapeHtml(key)}">${toggleLabel}</button>` : ""}
       </div>
-      <div class="stats-list">${content}</div>
     </section>
   `;
 }
 
 function bindStatsEvents() {
+  document.querySelectorAll("[data-toggle-stats-section]").forEach(button => {
+    button.addEventListener("click", event => {
+      const key = event.currentTarget.dataset.toggleStatsSection;
+      const body = document.querySelector(`[data-stats-body="${key}"]`);
+      if (!body) return;
+      body.classList.toggle("hidden");
+      event.currentTarget.setAttribute("aria-expanded", body.classList.contains("hidden") ? "false" : "true");
+      event.currentTarget.lastElementChild.textContent = body.classList.contains("hidden") ? "Abrir" : "Ocultar";
+    });
+  });
+
+  document.querySelectorAll("[data-expand-stats-list]").forEach(button => {
+    button.addEventListener("click", event => {
+      const key = event.currentTarget.dataset.expandStatsList;
+      statsSectionState[key] = !statsSectionState[key];
+      renderStatsPanel();
+    });
+  });
+
   document.querySelectorAll("[data-delete-time-log-id]").forEach(button => {
     button.addEventListener("click", async event => {
       const logId = event.currentTarget.dataset.deleteTimeLogId;
@@ -633,17 +770,17 @@ function roomTemplate(hotel, room) {
   const tasks = hotel.tasks.map(task => {
     const checked = room.checks[task.id] ? "checked" : "";
     const inactive = activeTaskIds.length && !activeTaskIds.includes(task.id) ? "inactive" : "";
-    const checkedClass = room.checks[task.id] ? "checked" : "";
 
     return `
-      <label class="task ${inactive} ${checkedClass}">
+      <label class="task ${inactive}">
         <input data-room-id="${escapeHtml(room.id)}" data-task-id="${escapeHtml(task.id)}" type="checkbox" ${checked}>
         <span class="task-surface">
           <span class="task-copy">
-            <span class="emoji">${escapeHtml(task.emoji)}</span>
+            <span class="emoji-box" aria-hidden="true">
+              <span class="emoji">${escapeHtml(task.emoji)}</span>
+            </span>
             <span class="task-label">${escapeHtml(task.label)}</span>
           </span>
-          <span class="task-mark" aria-hidden="true"></span>
         </span>
       </label>
     `;
@@ -759,20 +896,7 @@ function bindRoomEvents(hotel) {
 }
 
 function addHotel() {
-  const name = prompt("Nombre del hotel:");
-  if (!name || !name.trim()) return;
-
-  const hotel = {
-    id: uid("hotel"),
-    name: name.trim(),
-    tasks: clone(DEFAULT_TASKS),
-    rooms: []
-  };
-
-  data.hotels.push(hotel);
-  data.selectedHotelId = hotel.id;
-  saveAll("Hotel creado.");
-  render();
+  openHotelModal();
 }
 
 async function deleteCurrentHotel() {
@@ -798,34 +922,22 @@ async function deleteCurrentHotel() {
 
 function addRoom() {
   const hotel = getCurrentHotel();
-  const number = prompt("Número/nombre de habitación:");
-  if (!number || !number.trim()) return;
-
-  const cleanedNumber = number.trim();
-  const suggestedGroup = inferRoomGroup(cleanedNumber);
-  const group = prompt("Grupo de habitación (opcional):", suggestedGroup);
-  if (group === null) return;
-
-  const room = ensureRoomChecks(hotel, {
-    id: uid("room"),
-    number: cleanedNumber,
-    group: normalizeRoomGroup(group),
-    state: "LIMPIAR",
-    checks: {},
-    inProgressBlock: true,
-    progressBaseState: "LIMPIAR"
-  });
-
-  applyStateRules(hotel, room, true);
-  syncRoomState(hotel, room);
-  hotel.rooms.push(room);
-  registerStatusChange(hotel, room, "", room.state);
-  saveAll("Habitación creada.");
-  render();
+  roomEditContext = { mode: "create", hotelId: hotel.id, roomId: null };
+  $roomEditTitle.textContent = "Añadir habitación";
+  $saveRoomEditButton.textContent = "Crear";
+  $roomEditHotelIdInput.value = hotel.id;
+  $roomEditIdInput.value = "";
+  $roomEditNumberInput.value = "";
+  $roomEditGroupInput.value = "";
+  $roomEditModal.classList.remove("hidden");
+  $roomEditModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => $roomEditNumberInput.focus(), 0);
 }
 
 async function editRoom(hotel, room) {
-  roomEditContext = { hotelId: hotel.id, roomId: room.id };
+  roomEditContext = { mode: "edit", hotelId: hotel.id, roomId: room.id };
+  $roomEditTitle.textContent = "Editar habitación";
+  $saveRoomEditButton.textContent = "Guardar";
   $roomEditHotelIdInput.value = hotel.id;
   $roomEditIdInput.value = room.id;
   $roomEditNumberInput.value = room.number;
@@ -838,6 +950,8 @@ async function editRoom(hotel, room) {
 function closeRoomEditModal() {
   roomEditContext = null;
   $roomEditForm.reset();
+  $roomEditTitle.textContent = "Editar habitación";
+  $saveRoomEditButton.textContent = "Guardar";
   $roomEditModal.classList.add("hidden");
   $roomEditModal.setAttribute("aria-hidden", "true");
 }
@@ -849,11 +963,32 @@ async function submitRoomEdit(event) {
   const hotel = data.hotels.find(item => item.id === roomEditContext.hotelId);
   if (!hotel) return;
 
-  const room = hotel.rooms.find(item => item.id === roomEditContext.roomId);
-  if (!room) return;
-
   const nextNumber = $roomEditNumberInput.value.trim();
   if (!nextNumber) return;
+
+  if (roomEditContext.mode === "create") {
+    const room = ensureRoomChecks(hotel, {
+      id: uid("room"),
+      number: nextNumber,
+      group: normalizeRoomGroup($roomEditGroupInput.value),
+      state: "LIMPIAR",
+      checks: {},
+      inProgressBlock: true,
+      progressBaseState: "LIMPIAR"
+    });
+
+    applyStateRules(hotel, room, true);
+    syncRoomState(hotel, room);
+    hotel.rooms.push(room);
+    registerStatusChange(hotel, room, "", room.state);
+    closeRoomEditModal();
+    await saveAll("Habitación creada.");
+    render();
+    return;
+  }
+
+  const room = hotel.rooms.find(item => item.id === roomEditContext.roomId);
+  if (!room) return;
 
   room.number = nextNumber;
   room.group = normalizeRoomGroup($roomEditGroupInput.value);
@@ -869,6 +1004,26 @@ async function submitRoomEdit(event) {
   render();
 }
 
+async function submitHotelForm(event) {
+  event.preventDefault();
+
+  const name = $hotelNameInput.value.trim();
+  if (!name) return;
+
+  const currentHotel = getCurrentHotel();
+  const hotel = {
+    id: uid("hotel"),
+    name,
+    tasks: $hotelCopyTemplateInput.checked ? clone(currentHotel.tasks) : clone(DEFAULT_TASKS),
+    rooms: []
+  };
+
+  data.hotels.push(hotel);
+  data.selectedHotelId = hotel.id;
+  closeHotelModal();
+  await saveAll("Hotel creado.");
+  render();
+}
 function updateRoomReferencesInLogs(hotel, room) {
   data.timeLogs.forEach(log => {
     if (log.hotelId === hotel.id && log.roomId === room.id) {

@@ -17,76 +17,111 @@
       <button id="syncButton" class="icon-btn" type="button" aria-label="Sincronizar">↻</button>
     </header>
 
-    <section class="summary-card" aria-label="Resumen">
-      <div class="summary-top">
-        <div>
-          <p class="label">Progreso activo</p>
-          <strong id="globalPercent">0%</strong>
+    <section id="roomsView" class="app-view" aria-label="Vista principal">
+      <section class="summary-card" aria-label="Resumen">
+        <div class="summary-top">
+          <div>
+            <p class="label">Progreso activo</p>
+            <strong id="globalPercent">0%</strong>
+          </div>
+          <div class="summary-stats">
+            <span class="stat todo"><b id="todoCount">0</b><small>limpiar</small></span>
+            <span class="stat occupied"><b id="occupiedCount">0</b><small>ocupadas</small></span>
+            <span class="stat clean"><b id="cleanCount">0</b><small>limpiadas</small></span>
+          </div>
         </div>
-        <div class="summary-stats">
-          <span class="stat todo"><b id="todoCount">0</b><small>limpiar</small></span>
-          <span class="stat occupied"><b id="occupiedCount">0</b><small>ocupadas</small></span>
-          <span class="stat clean"><b id="cleanCount">0</b><small>limpiadas</small></span>
+        <div class="progress-track" aria-hidden="true">
+          <div id="globalBar" class="progress-fill"></div>
         </div>
-      </div>
-      <div class="progress-track" aria-hidden="true">
-        <div id="globalBar" class="progress-fill"></div>
-      </div>
-      <p id="progressHint" class="progress-hint">Calcula solo habitaciones LIMPIAR y tareas activas de OCUPADA.</p>
+        <p id="progressHint" class="progress-hint">Calcula solo habitaciones LIMPIAR y tareas activas de OCUPADA.</p>
+      </section>
+
+      <nav class="hotel-tabs-wrap" aria-label="Hoteles">
+        <div id="hotelTabs" class="hotel-tabs"></div>
+        <button id="addHotelButton" class="mini-btn add" type="button">+ Hotel</button>
+      </nav>
+
+      <section class="toolbar" aria-label="Acciones">
+        <button id="addRoomButton" class="primary-btn" type="button">+ Habitación</button>
+        <button id="templateButton" class="soft-btn" type="button">⚙️ Plantilla</button>
+        <button id="statsButton" class="soft-btn" type="button">📊 Estadísticas</button>
+        <button id="deleteHotelButton" class="soft-danger-btn" type="button">Borrar hotel</button>
+      </section>
+
+      <main id="rooms" class="rooms" aria-label="Habitaciones"></main>
+
+      <footer class="footer">
+        <button id="resetButton" class="danger-link" type="button">Reiniciar local</button>
+        <p id="statusMessage">Listo.</p>
+      </footer>
     </section>
 
-    <nav class="hotel-tabs-wrap" aria-label="Hoteles">
-      <div id="hotelTabs" class="hotel-tabs"></div>
-      <button id="addHotelButton" class="mini-btn add" type="button">+ Hotel</button>
-    </nav>
-
-    <section class="toolbar" aria-label="Acciones">
-      <button id="addRoomButton" class="primary-btn" type="button">+ Habitación</button>
-      <button id="templateButton" class="soft-btn" type="button">⚙️ Plantilla</button>
-      <button id="statsButton" class="soft-btn" type="button">📊 Estadísticas</button>
-      <button id="deleteHotelButton" class="soft-danger-btn" type="button">Borrar hotel</button>
+    <section id="statsView" class="app-view hidden" aria-label="Vista de estadísticas">
+      <div class="stats-view-head">
+        <button id="backToRoomsButton" class="soft-btn stats-back-btn" type="button">← Habitaciones</button>
+      </div>
+      <section class="template-panel stats-panel" aria-label="Estadísticas">
+        <div class="panel-head">
+          <div>
+            <p class="label">Rendimiento</p>
+            <h2>Estadísticas</h2>
+          </div>
+        </div>
+        <div id="statsContent" class="stats-content"></div>
+      </section>
     </section>
+  </div>
 
-    <section id="templatePanel" class="template-panel hidden" aria-label="Plantilla de tareas">
+  <div id="templateModal" class="modal-backdrop hidden" aria-hidden="true">
+    <section class="modal-card modal-sheet" aria-labelledby="templateModalTitle" aria-modal="true" role="dialog">
       <div class="panel-head">
         <div>
           <p class="label">Plantilla del hotel</p>
-          <h2>Tareas</h2>
+          <h2 id="templateModalTitle">Tareas</h2>
         </div>
         <button id="closeTemplateButton" class="icon-btn small" type="button" aria-label="Cerrar">×</button>
       </div>
 
-      <div id="taskEditorList" class="task-editor-list"></div>
+      <div id="templatePanel" class="template-panel modal-panel" aria-label="Plantilla de tareas">
+        <div id="taskEditorList" class="task-editor-list"></div>
 
-      <form id="addTaskForm" class="add-task-form">
-        <input id="taskEmojiInput" maxlength="4" placeholder="🧽" aria-label="Emoji" />
-        <input id="taskLabelInput" placeholder="Nueva tarea" aria-label="Nombre de tarea" />
-        <label class="occupied-toggle">
-          <input id="taskOccupiedInput" type="checkbox" checked />
-          <span>OCUPADA</span>
-        </label>
-        <button class="mini-btn add" type="submit">Añadir</button>
-      </form>
+        <form id="addTaskForm" class="add-task-form">
+          <input id="taskEmojiInput" maxlength="4" placeholder="🧽" aria-label="Emoji" />
+          <input id="taskLabelInput" placeholder="Nueva tarea" aria-label="Nombre de tarea" />
+          <label class="occupied-toggle">
+            <input id="taskOccupiedInput" type="checkbox" checked />
+            <span>OCUPADA</span>
+          </label>
+          <button class="mini-btn add" type="submit">Añadir</button>
+        </form>
+      </div>
     </section>
+  </div>
 
-    <section id="statsPanel" class="template-panel hidden stats-panel" aria-label="Estadísticas">
+  <div id="hotelModal" class="modal-backdrop hidden" aria-hidden="true">
+    <section class="modal-card" aria-labelledby="hotelModalTitle" aria-modal="true" role="dialog">
       <div class="panel-head">
         <div>
-          <p class="label">Rendimiento</p>
-          <h2>Estadísticas</h2>
+          <p class="label">Hotel</p>
+          <h2 id="hotelModalTitle">Añadir hotel</h2>
         </div>
-        <button id="closeStatsButton" class="icon-btn small" type="button" aria-label="Cerrar">×</button>
+        <button id="closeHotelModalButton" class="icon-btn small" type="button" aria-label="Cerrar">×</button>
       </div>
-
-      <div id="statsContent" class="stats-content"></div>
+      <form id="hotelForm" class="room-edit-form">
+        <label class="modal-field">
+          <span>Nombre del hotel</span>
+          <input id="hotelNameInput" type="text" required />
+        </label>
+        <label class="occupied-toggle modal-check">
+          <input id="hotelCopyTemplateInput" type="checkbox" checked />
+          <span>Copiar plantilla del hotel actual</span>
+        </label>
+        <div class="modal-actions">
+          <button id="cancelHotelModalButton" class="soft-btn" type="button">Cancelar</button>
+          <button class="primary-btn" type="submit">Guardar</button>
+        </div>
+      </form>
     </section>
-
-    <main id="rooms" class="rooms" aria-label="Habitaciones"></main>
-
-    <footer class="footer">
-      <button id="resetButton" class="danger-link" type="button">Reiniciar local</button>
-      <p id="statusMessage">Listo.</p>
-    </footer>
   </div>
 
   <div id="roomEditModal" class="modal-backdrop hidden" aria-hidden="true">
@@ -115,7 +150,7 @@
 
         <div class="modal-actions">
           <button id="cancelRoomEditButton" class="soft-btn" type="button">Cancelar</button>
-          <button class="primary-btn" type="submit">Guardar</button>
+          <button id="saveRoomEditButton" class="primary-btn" type="submit">Guardar</button>
         </div>
       </form>
     </section>
