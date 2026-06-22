@@ -53,6 +53,7 @@ let firebaseReady = false;
 let firebaseSaving = false;
 const pendingBlockResets = new Map();
 let sessionTickerId = null;
+let roomEditContext = null;
 
 const $hotelTitle = document.querySelector("#hotelTitle");
 const $globalPercent = document.querySelector("#globalPercent");
@@ -66,12 +67,18 @@ const $rooms = document.querySelector("#rooms");
 const $statusMessage = document.querySelector("#statusMessage");
 const $templatePanel = document.querySelector("#templatePanel");
 const $statsPanel = document.querySelector("#statsPanel");
+const $roomEditModal = document.querySelector("#roomEditModal");
 const $taskEditorList = document.querySelector("#taskEditorList");
 const $statsContent = document.querySelector("#statsContent");
 const $addTaskForm = document.querySelector("#addTaskForm");
 const $taskEmojiInput = document.querySelector("#taskEmojiInput");
 const $taskLabelInput = document.querySelector("#taskLabelInput");
 const $taskOccupiedInput = document.querySelector("#taskOccupiedInput");
+const $roomEditForm = document.querySelector("#roomEditForm");
+const $roomEditHotelIdInput = document.querySelector("#roomEditHotelIdInput");
+const $roomEditIdInput = document.querySelector("#roomEditIdInput");
+const $roomEditNumberInput = document.querySelector("#roomEditNumberInput");
+const $roomEditGroupInput = document.querySelector("#roomEditGroupInput");
 
 const $addHotelButton = document.querySelector("#addHotelButton");
 const $deleteHotelButton = document.querySelector("#deleteHotelButton");
@@ -80,6 +87,8 @@ const $templateButton = document.querySelector("#templateButton");
 const $statsButton = document.querySelector("#statsButton");
 const $closeTemplateButton = document.querySelector("#closeTemplateButton");
 const $closeStatsButton = document.querySelector("#closeStatsButton");
+const $closeRoomEditModalButton = document.querySelector("#closeRoomEditModalButton");
+const $cancelRoomEditButton = document.querySelector("#cancelRoomEditButton");
 const $resetButton = document.querySelector("#resetButton");
 const $syncButton = document.querySelector("#syncButton");
 
@@ -101,9 +110,15 @@ function bindGlobalEvents() {
   $statsButton.addEventListener("click", () => $statsPanel.classList.toggle("hidden"));
   $closeTemplateButton.addEventListener("click", () => $templatePanel.classList.add("hidden"));
   $closeStatsButton.addEventListener("click", () => $statsPanel.classList.add("hidden"));
+  $closeRoomEditModalButton.addEventListener("click", closeRoomEditModal);
+  $cancelRoomEditButton.addEventListener("click", closeRoomEditModal);
+  $roomEditModal.addEventListener("click", event => {
+    if (event.target === $roomEditModal) closeRoomEditModal();
+  });
   $resetButton.addEventListener("click", resetLocalData);
   $syncButton.addEventListener("click", syncNow);
   $addTaskForm.addEventListener("submit", addTask);
+  $roomEditForm.addEventListener("submit", submitRoomEdit);
 }
 
 function setupFirebase() {
@@ -454,6 +469,15 @@ function renderStatsPanel() {
           <div><strong>${stats.overview.totalRefreshRuns}</strong><span>veces OCUPADA</span></div>
         </div>
       </article>
+
+      <article class="stats-card">
+        <p class="label">Gestión</p>
+        <div class="stats-actions">
+          <button class="soft-btn stats-action-btn" type="button" data-clear-log-type="time">Borrar sesiones</button>
+          <button class="soft-btn stats-action-btn" type="button" data-clear-log-type="status">Borrar cambios</button>
+          <button class="soft-danger-btn stats-action-btn" type="button" data-clear-log-type="all">Borrar todos los registros</button>
+        </div>
+      </article>
     </div>
 
     ${renderStatsListSection("Media por habitación", stats.byRoom, item => `
@@ -512,13 +536,31 @@ function renderStatsPanel() {
           <strong>${escapeHtml(item.dateLabel)} · ${escapeHtml(item.roomLabel)}</strong>
           <small>${escapeHtml(item.hotelName)} · ${escapeHtml(item.workTypeLabel)}</small>
         </div>
-        <span>${escapeHtml(item.durationReadable)}</span>
+        <div class="stats-row-actions">
+          <span>${escapeHtml(item.durationReadable)}</span>
+          <button class="tiny-btn stats-delete-btn" type="button" data-delete-time-log-id="${escapeHtml(item.id)}" aria-label="Borrar sesión">×</button>
+        </div>
+      </div>
+    `)}
+
+    ${renderStatsListSection("Cambios de estado recientes", stats.recentStatusLogs, item => `
+      <div class="stats-list-row">
+        <div>
+          <strong>${escapeHtml(item.dateLabel)} · ${escapeHtml(item.roomLabel)}</strong>
+          <small>${escapeHtml(item.transitionLabel)}</small>
+        </div>
+        <div class="stats-row-actions">
+          <span>${escapeHtml(item.toStatus || "SIN ESTADO")}</span>
+          <button class="tiny-btn stats-delete-btn" type="button" data-delete-status-log-id="${escapeHtml(item.id)}" aria-label="Borrar cambio de estado">×</button>
+        </div>
       </div>
     `)}
   `;
+
+  bindStatsEvents();
 }
 
-function renderStatsListSection(title, items, template) {
+function renderStatsListSection(title, items, template, actionsHtml = "") {
   const content = items.length
     ? items.map(template).join("")
     : `<p class="stats-empty">Todavía no hay datos suficientes.</p>`;
@@ -527,10 +569,34 @@ function renderStatsListSection(title, items, template) {
     <section class="stats-section">
       <div class="stats-section-head">
         <h3>${escapeHtml(title)}</h3>
+        ${actionsHtml}
       </div>
       <div class="stats-list">${content}</div>
     </section>
   `;
+}
+
+function bindStatsEvents() {
+  document.querySelectorAll("[data-delete-time-log-id]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const logId = event.currentTarget.dataset.deleteTimeLogId;
+      await deleteTimeLog(logId);
+    });
+  });
+
+  document.querySelectorAll("[data-delete-status-log-id]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const logId = event.currentTarget.dataset.deleteStatusLogId;
+      await deleteStatusLog(logId);
+    });
+  });
+
+  document.querySelectorAll("[data-clear-log-type]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const logType = event.currentTarget.dataset.clearLogType;
+      await clearLogType(logType);
+    });
+  });
 }
 
 function renderRooms(hotel) {
@@ -554,8 +620,9 @@ function roomTemplate(hotel, room) {
   const activeTaskIds = getVisualTaskIds(hotel, room);
   const activeSession = isRoomSessionActive(room) ? data.activeSession : null;
   const roomGroup = getRoomGroup(room);
-  const timerText = activeSession ? formatDuration(getSessionElapsedSeconds(activeSession)) : "Sin sesión";
-  const sessionLabel = activeSession ? "Sesión activa" : "";
+  const sessionText = activeSession
+    ? `Sesión activa · ${formatDuration(getSessionElapsedSeconds(activeSession))}`
+    : "Sin sesión";
 
   const stateOptions = STATES.map(state => {
     const label = state || "SIN ESTADO";
@@ -589,18 +656,15 @@ function roomTemplate(hotel, room) {
           ${escapeHtml(room.number)}
         </button>
         <div class="room-main">
-          <div class="room-meta">
-            <span class="room-group">${escapeHtml(roomGroup)}</span>
-            ${sessionLabel ? `<span class="room-session-label">${escapeHtml(sessionLabel)}</span>` : ""}
-          </div>
           <div class="state-row">
             <select class="state-select" data-room-id="${escapeHtml(room.id)}" aria-label="Estado habitación ${escapeHtml(room.number)}">
               ${stateOptions}
             </select>
             <div class="row-progress">${formatPercent(progress)}</div>
           </div>
-          <div class="room-subrow">
-            <div class="room-timer" data-session-timer="${escapeHtml(room.id)}">${timerText}</div>
+          <div class="room-meta">
+            <span class="room-group">${escapeHtml(roomGroup)}</span>
+            <span class="room-session-chip ${activeSession ? "active" : ""}" data-session-timer="${escapeHtml(room.id)}">${escapeHtml(sessionText)}</span>
           </div>
         </div>
         <button class="icon-btn small edit-room-btn" type="button" data-room-id="${escapeHtml(room.id)}" aria-label="Editar habitación">✎</button>
@@ -622,6 +686,7 @@ function bindRoomEvents(hotel) {
       applyStateRules(hotel, room, true);
       syncRoomState(hotel, room);
       registerStatusChange(hotel, room, previousState, room.state);
+      await closeSessionIfRoomCompleted(room, { persist: false });
       await saveAll();
       render();
     });
@@ -650,6 +715,7 @@ function bindRoomEvents(hotel) {
 
       syncRoomState(hotel, room);
       registerStatusChange(hotel, room, previousState, room.state);
+      await closeSessionIfRoomCompleted(room, { persist: false });
       await saveAll();
       render();
     });
@@ -759,24 +825,65 @@ function addRoom() {
 }
 
 async function editRoom(hotel, room) {
-  const nextNumber = prompt("Número/nombre de habitación:", room.number);
-  if (nextNumber === null) return;
-  if (!nextNumber.trim()) return;
+  roomEditContext = { hotelId: hotel.id, roomId: room.id };
+  $roomEditHotelIdInput.value = hotel.id;
+  $roomEditIdInput.value = room.id;
+  $roomEditNumberInput.value = room.number;
+  $roomEditGroupInput.value = room.group || inferRoomGroup(room.number);
+  $roomEditModal.classList.remove("hidden");
+  $roomEditModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => $roomEditNumberInput.focus(), 0);
+}
 
-  const defaultGroup = room.group || inferRoomGroup(nextNumber.trim());
-  const nextGroup = prompt("Grupo de habitación:", defaultGroup);
-  if (nextGroup === null) return;
+function closeRoomEditModal() {
+  roomEditContext = null;
+  $roomEditForm.reset();
+  $roomEditModal.classList.add("hidden");
+  $roomEditModal.setAttribute("aria-hidden", "true");
+}
 
-  room.number = nextNumber.trim();
-  room.group = normalizeRoomGroup(nextGroup);
+async function submitRoomEdit(event) {
+  event.preventDefault();
+  if (!roomEditContext) return;
+
+  const hotel = data.hotels.find(item => item.id === roomEditContext.hotelId);
+  if (!hotel) return;
+
+  const room = hotel.rooms.find(item => item.id === roomEditContext.roomId);
+  if (!room) return;
+
+  const nextNumber = $roomEditNumberInput.value.trim();
+  if (!nextNumber) return;
+
+  room.number = nextNumber;
+  room.group = normalizeRoomGroup($roomEditGroupInput.value);
+  updateRoomReferencesInLogs(hotel, room);
 
   if (data.activeSession && data.activeSession.roomId === room.id && data.activeSession.hotelId === hotel.id) {
     data.activeSession.roomNumber = room.number;
     data.activeSession.roomGroup = getRoomGroup(room);
   }
 
+  closeRoomEditModal();
   await saveAll("Habitación actualizada.");
   render();
+}
+
+function updateRoomReferencesInLogs(hotel, room) {
+  data.timeLogs.forEach(log => {
+    if (log.hotelId === hotel.id && log.roomId === room.id) {
+      log.hotelName = hotel.name;
+      log.roomNumber = room.number;
+      log.roomGroup = getRoomGroup(room);
+    }
+  });
+
+  data.statusLogs.forEach(log => {
+    if (log.hotelId === hotel.id && log.roomId === room.id) {
+      log.hotelName = hotel.name;
+      log.roomNumber = room.number;
+    }
+  });
 }
 
 async function addTask(event) {
@@ -898,6 +1005,12 @@ async function toggleRoomSession(hotel, room) {
   render();
 }
 
+async function closeSessionIfRoomCompleted(room, options = {}) {
+  if (!isRoomSessionActive(room)) return null;
+  if (!isRoomComplete(getCurrentHotel(), room)) return null;
+  return stopActiveSession(options);
+}
+
 function startRoomSession(hotel, room) {
   const startedAt = Date.now();
   data.activeSession = {
@@ -943,7 +1056,10 @@ async function stopActiveSession(options = {}) {
   data.activeSession = null;
   syncSessionTicker();
 
-  await saveAll(options.saveMessage || `Sesión guardada: ${timeLog.roomNumber}.`);
+  if (options.persist !== false) {
+    await saveAll(options.saveMessage || `Sesión guardada: ${timeLog.roomNumber}.`);
+  }
+
   return timeLog;
 }
 
@@ -982,7 +1098,7 @@ function syncSessionTicker() {
 function updateSessionTimerLabels() {
   if (!data.activeSession) return;
 
-  const timerText = formatDuration(getSessionElapsedSeconds(data.activeSession));
+  const timerText = `Sesión activa · ${formatDuration(getSessionElapsedSeconds(data.activeSession))}`;
   document.querySelectorAll(`[data-session-timer="${data.activeSession.roomId}"]`).forEach(node => {
     node.textContent = timerText;
   });
@@ -1080,6 +1196,16 @@ function calculateStats() {
         roomLabel: buildRoomLabel(log.hotelName, log.roomNumber),
         dateLabel: formatDateTimeLabel(log.startedAt),
         workTypeLabel: log.workType === "refresh" ? "Repaso ocupada" : "Limpieza completa"
+      })),
+    recentStatusLogs: statusLogs
+      .slice()
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, RECENT_SESSIONS_LIMIT)
+      .map(log => ({
+        ...log,
+        roomLabel: buildRoomLabel(log.hotelName, log.roomNumber),
+        dateLabel: formatDateTimeLabel(log.timestamp),
+        transitionLabel: `${log.fromStatus || "SIN ESTADO"} → ${log.toStatus || "SIN ESTADO"}`
       }))
   };
 }
@@ -1115,6 +1241,136 @@ function averageSeconds(logs) {
   if (!logs.length) return 0;
   const total = logs.reduce((sum, log) => sum + log.durationSeconds, 0);
   return Math.round(total / logs.length);
+}
+
+async function deleteTimeLog(logId) {
+  const log = data.timeLogs.find(item => item.id === logId);
+  if (!log) return;
+
+  const confirmed = confirm(`¿Borrar la sesión de ${log.roomNumber} del ${log.date}?`);
+  if (!confirmed) return;
+
+  data.timeLogs = data.timeLogs.filter(item => item.id !== logId);
+  await saveAll("Sesión eliminada.");
+  render();
+}
+
+async function deleteStatusLog(logId) {
+  const log = data.statusLogs.find(item => item.id === logId);
+  if (!log) return;
+
+  const confirmed = confirm(`¿Borrar el cambio ${log.fromStatus || "SIN ESTADO"} → ${log.toStatus || "SIN ESTADO"} de ${log.roomNumber}?`);
+  if (!confirmed) return;
+
+  data.statusLogs = data.statusLogs.filter(item => item.id !== logId);
+  await saveAll("Cambio de estado eliminado.");
+  render();
+}
+
+async function clearLogType(logType) {
+  const messages = {
+    time: "¿Borrar todas las sesiones guardadas?",
+    status: "¿Borrar todos los cambios de estado guardados?",
+    all: "¿Borrar todos los registros de sesiones y cambios de estado?"
+  };
+
+  const confirmed = confirm(messages[logType] || "¿Borrar registros?");
+  if (!confirmed) return;
+
+  if (logType === "time" || logType === "all") data.timeLogs = [];
+  if (logType === "status" || logType === "all") data.statusLogs = [];
+
+  await saveAll("Registros limpiados.");
+  render();
+}
+
+// These export helpers keep the data ready for future Google Sheets tabs:
+// Hoteles, Habitaciones, Sesiones, CambiosEstado, ResumenHabitaciones,
+// ResumenGrupos y ResumenGeneral.
+function exportTimeLogsForSheets() {
+  return data.timeLogs.map(log => ({
+    id: log.id,
+    hotelId: log.hotelId,
+    hotelName: log.hotelName,
+    roomId: log.roomId,
+    roomNumber: log.roomNumber,
+    roomGroup: log.roomGroup,
+    workType: log.workType,
+    statusAtStart: log.statusAtStart,
+    date: log.date,
+    startTime: log.startTime,
+    endTime: log.endTime,
+    startedAt: log.startedAt,
+    endedAt: log.endedAt,
+    durationSeconds: log.durationSeconds,
+    durationReadable: log.durationReadable
+  }));
+}
+
+function exportStatusLogsForSheets() {
+  return data.statusLogs.map(log => ({
+    id: log.id,
+    hotelId: log.hotelId,
+    hotelName: log.hotelName,
+    roomId: log.roomId,
+    roomNumber: log.roomNumber,
+    fromStatus: log.fromStatus,
+    toStatus: log.toStatus,
+    date: log.date,
+    timestamp: log.timestamp
+  }));
+}
+
+function exportRoomsForSheets() {
+  return data.hotels.flatMap(hotel => hotel.rooms.map(room => ({
+    hotelId: hotel.id,
+    hotelName: hotel.name,
+    roomId: room.id,
+    roomNumber: room.number,
+    roomGroup: getRoomGroup(room),
+    roomState: room.state,
+    inProgressBlock: room.inProgressBlock,
+    progressBaseState: room.progressBaseState
+  })));
+}
+
+function buildSheetsPayload() {
+  return {
+    generatedAt: new Date().toISOString(),
+    hotels: data.hotels.map(hotel => ({
+      id: hotel.id,
+      name: hotel.name
+    })),
+    rooms: exportRoomsForSheets(),
+    timeLogs: exportTimeLogsForSheets(),
+    statusLogs: exportStatusLogsForSheets()
+  };
+}
+
+async function syncToGoogleSheets() {
+  const url = String(window.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+
+  if (!url) {
+    setStatus("Google Sheets no configurado todavía.");
+    return { ok: false, reason: "missing_url" };
+  }
+
+  const payload = buildSheetsPayload();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Sheets respondió ${response.status}`);
+  }
+
+  setStatus("Datos enviados a Google Sheets.");
+  return { ok: true };
 }
 
 function ensureRoomChecks(hotel, room) {
@@ -1369,7 +1625,13 @@ async function resetLocalData() {
 }
 
 async function syncNow() {
-  await saveAll(firebaseReady ? "Sincronizado." : "Modo local. Falta databaseURL.");
+  try {
+    await saveAll(firebaseReady ? "Sincronizado." : "Modo local. Falta databaseURL.");
+    await syncToGoogleSheets();
+  } catch (error) {
+    console.error(error);
+    setStatus("No se pudo sincronizar con Google Sheets.");
+  }
 }
 
 function setStatus(message) {

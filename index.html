@@ -89,6 +89,38 @@
     </footer>
   </div>
 
+  <div id="roomEditModal" class="modal-backdrop hidden" aria-hidden="true">
+    <section class="modal-card" aria-labelledby="roomEditTitle" aria-modal="true" role="dialog">
+      <div class="panel-head">
+        <div>
+          <p class="label">Habitación</p>
+          <h2 id="roomEditTitle">Editar</h2>
+        </div>
+        <button id="closeRoomEditModalButton" class="icon-btn small" type="button" aria-label="Cerrar">×</button>
+      </div>
+
+      <form id="roomEditForm" class="room-edit-form">
+        <input id="roomEditIdInput" type="hidden" />
+        <input id="roomEditHotelIdInput" type="hidden" />
+
+        <label class="modal-field">
+          <span>Número o nombre</span>
+          <input id="roomEditNumberInput" type="text" required />
+        </label>
+
+        <label class="modal-field">
+          <span>Grupo o piso</span>
+          <input id="roomEditGroupInput" type="text" />
+        </label>
+
+        <div class="modal-actions">
+          <button id="cancelRoomEditButton" class="soft-btn" type="button">Cancelar</button>
+          <button class="primary-btn" type="submit">Guardar</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>

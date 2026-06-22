@@ -15,4 +15,7 @@ window.FIREBASE_CONFIG = {
 };
 
 // Ruta donde se guardarán las habitaciones.
-window.FIREBASE_DB_PATH = "housekeeping/rooms";
+// Estado completo de la app para localStorage/Firebase/Google Sheets.
+window.FIREBASE_DB_PATH = "housekeeping/app";
+// URL futura del Web App de Apps Script para sincronizar con Google Sheets.
+window.GOOGLE_SHEETS_WEBAPP_URL = "";
