@@ -19,7 +19,7 @@ const DEFAULT_DATA = {
   hotels: [
     {
       id: "steinbock",
-      name: "Hotel Steinbock",
+      name: "Steinbock",
       tasks: clone(DEFAULT_TASKS),
       rooms: ["101", "102", "103", "104", "105", "106", "107", "108", "109", "110", "111", "201", "202", "203", "204", "205", "206"].map(number => ({
         id: uid("room"),
@@ -32,7 +32,7 @@ const DEFAULT_DATA = {
     },
     {
       id: "baeren",
-      name: "Hotel Bären",
+      name: "Bären",
       tasks: clone(DEFAULT_TASKS),
       rooms: []
     }

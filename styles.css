@@ -578,6 +578,7 @@ h2 {
   gap: 9px;
   margin-top: 12px;
   padding: 0;
+  font-size: 8px;
 }
 
 .task {
@@ -585,6 +586,7 @@ h2 {
   display: block;
   user-select: none;
   padding: 0px;
+  width: 160px;
 }
 
 .task.inactive {
@@ -972,5 +974,132 @@ h2 {
   .tasks,
   .modal-actions {
     grid-template-columns: 1fr;
+  }
+}
+/* FIX MOBILE OVERFLOW */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.app-shell,
+main,
+.rooms {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.rooms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding-inline: 0;
+  overflow: visible;
+}
+
+.room-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.room-header,
+.room-top,
+.room-main {
+  width: 100%;
+  min-width: 0;
+}
+
+.room-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.room-number {
+  width: 54px;
+  min-width: 54px;
+  max-width: 54px;
+}
+
+.room-status,
+.status-select,
+.room-card select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.room-progress,
+.room-percent {
+  min-width: 56px;
+  max-width: 64px;
+}
+
+.delete-room,
+.room-delete {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+}
+
+.room-meta,
+.room-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tasks-grid,
+.room-tasks {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.task-card,
+.task-button,
+.task-item {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.task-label,
+.task-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 370px) {
+  .tasks-grid,
+  .room-tasks {
+    grid-template-columns: 1fr;
+  }
+
+  .room-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .delete-room,
+  .room-delete {
+    grid-column: 3;
   }
 }
