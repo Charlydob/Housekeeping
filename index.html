@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Housekeeping</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Hotel</p>
+        <h1>Housekeeping</h1>
+      </div>
+      <button id="syncButton" class="ghost-btn" type="button">Sincronizar</button>
+    </header>
+
+    <section class="summary-card">
+      <div class="summary-row">
+        <div>
+          <p class="label">Progreso total</p>
+          <strong id="globalPercent">0%</strong>
+        </div>
+        <div class="mini-stats">
+          <span><b id="cleanCount">0</b> limpiadas</span>
+          <span><b id="occupiedCount">0</b> ocupadas</span>
+          <span><b id="todoCount">0</b> limpiar</span>
+        </div>
+      </div>
+      <div class="progress-track">
+        <div id="globalBar" class="progress-fill"></div>
+      </div>
+    </section>
+
+    <main id="rooms" class="rooms"></main>
+
+    <footer class="footer">
+      <button id="resetButton" class="danger-btn" type="button">Reiniciar datos locales</button>
+      <p id="statusMessage">Listo.</p>
+    </footer>
+  </div>
+
+  <!-- Firebase compat: simple y compatible con GitHub Pages -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

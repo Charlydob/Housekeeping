@@ -1,0 +1,244 @@
+:root {
+  --bg: #0f172a;
+  --panel: rgba(255, 255, 255, 0.08);
+  --panel-strong: rgba(255, 255, 255, 0.13);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --line: rgba(255, 255, 255, 0.12);
+  --green: #22c55e;
+  --yellow: #f59e0b;
+  --red: #ef4444;
+  --blue: #38bdf8;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.24), transparent 34rem),
+    radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.16), transparent 28rem),
+    var(--bg);
+  color: var(--text);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+.app {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.eyebrow,
+.label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+h1 {
+  margin: 2px 0 0;
+  font-size: clamp(1.8rem, 7vw, 3.2rem);
+  line-height: 1;
+}
+
+.summary-card,
+.room-card {
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, var(--panel), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(16px);
+  border-radius: 26px;
+  box-shadow: var(--shadow);
+}
+
+.summary-card {
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+#globalPercent {
+  display: block;
+  margin-top: 4px;
+  font-size: clamp(2rem, 12vw, 4.4rem);
+  line-height: 0.95;
+}
+
+.mini-stats {
+  display: grid;
+  gap: 7px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.mini-stats b {
+  color: var(--text);
+}
+
+.progress-track {
+  height: 12px;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  transition: width 0.22s ease;
+}
+
+.rooms {
+  display: grid;
+  gap: 12px;
+}
+
+.room-card {
+  padding: 14px;
+}
+
+.room-card[data-state="LIMPIAR"] {
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+.room-card[data-state="OCUPADA"] {
+  border-color: rgba(239, 68, 68, 0.66);
+}
+
+.room-card[data-state="LIMPIADA"] {
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.room-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.room-number {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+
+.state-select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.82);
+  outline: none;
+}
+
+.row-progress {
+  min-width: 58px;
+  text-align: right;
+  font-weight: 800;
+}
+
+.tasks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 9px 10px;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  user-select: none;
+}
+
+.task.inactive {
+  opacity: 0.48;
+}
+
+.task input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+}
+
+.ghost-btn,
+.danger-btn {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.danger-btn {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #fecaca;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 30px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.footer p {
+  margin: 0;
+  text-align: right;
+}
+
+@media (min-width: 760px) {
+  .rooms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasks {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
