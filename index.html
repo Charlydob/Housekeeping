@@ -47,6 +47,8 @@
         <button id="statsButton" class="soft-btn" type="button">📊 Estadísticas</button>
         <button id="deleteHotelButton" class="soft-danger-btn" type="button">Borrar hotel</button>
       </section>
+        <button id="quickCleanButton" class="soft-btn" type="button">Limpiar</button>
+      <section id="quickCleanPanel" class="quick-clean-panel hidden" aria-label="Selección rápida para limpiar"></section>
 
       <main id="rooms" class="rooms" aria-label="Habitaciones"></main>
 
@@ -147,6 +149,15 @@
           <span>Grupo o piso</span>
           <input id="roomEditGroupInput" type="text" />
         </label>
+
+        <div class="modal-field room-tags-field">
+          <span>Etiquetas</span>
+          <div class="tag-editor-input">
+            <input id="roomTagInput" type="text" placeholder="Añadir etiqueta" />
+            <button id="addRoomTagButton" class="soft-btn" type="button">Añadir</button>
+          </div>
+          <div id="roomTagEditorList" class="room-tag-editor-list" aria-live="polite"></div>
+        </div>
 
         <div class="modal-actions">
           <button id="cancelRoomEditButton" class="soft-btn" type="button">Cancelar</button>

@@ -54,7 +54,11 @@ let firebaseSaving = false;
 const pendingBlockResets = new Map();
 let sessionTickerId = null;
 let roomEditContext = null;
+let roomEditTags = [];
 let currentView = "rooms";
+let quickCleanMode = false;
+let quickCleanHotelId = null;
+let quickCleanSelection = new Set();
 const statsSectionState = {
   busiest: false,
   byRoom: false,
@@ -75,6 +79,7 @@ const $cleanCount = document.querySelector("#cleanCount");
 const $roomsView = document.querySelector("#roomsView");
 const $statsView = document.querySelector("#statsView");
 const $hotelTabs = document.querySelector("#hotelTabs");
+const $quickCleanPanel = document.querySelector("#quickCleanPanel");
 const $rooms = document.querySelector("#rooms");
 const $statusMessage = document.querySelector("#statusMessage");
 const $templatePanel = document.querySelector("#templatePanel");
@@ -92,6 +97,9 @@ const $roomEditHotelIdInput = document.querySelector("#roomEditHotelIdInput");
 const $roomEditIdInput = document.querySelector("#roomEditIdInput");
 const $roomEditNumberInput = document.querySelector("#roomEditNumberInput");
 const $roomEditGroupInput = document.querySelector("#roomEditGroupInput");
+const $roomTagInput = document.querySelector("#roomTagInput");
+const $addRoomTagButton = document.querySelector("#addRoomTagButton");
+const $roomTagEditorList = document.querySelector("#roomTagEditorList");
 const $roomEditTitle = document.querySelector("#roomEditTitle");
 const $saveRoomEditButton = document.querySelector("#saveRoomEditButton");
 const $hotelForm = document.querySelector("#hotelForm");
@@ -101,6 +109,7 @@ const $hotelCopyTemplateInput = document.querySelector("#hotelCopyTemplateInput"
 const $addHotelButton = document.querySelector("#addHotelButton");
 const $deleteHotelButton = document.querySelector("#deleteHotelButton");
 const $addRoomButton = document.querySelector("#addRoomButton");
+const $quickCleanButton = document.querySelector("#quickCleanButton");
 const $templateButton = document.querySelector("#templateButton");
 const $statsButton = document.querySelector("#statsButton");
 const $backToRoomsButton = document.querySelector("#backToRoomsButton");
@@ -126,6 +135,7 @@ function bindGlobalEvents() {
   $addHotelButton.addEventListener("click", addHotel);
   $deleteHotelButton.addEventListener("click", deleteCurrentHotel);
   $addRoomButton.addEventListener("click", addRoom);
+  $quickCleanButton.addEventListener("click", handleQuickCleanButton);
   $templateButton.addEventListener("click", openTemplateModal);
   $statsButton.addEventListener("click", openStatsView);
   $backToRoomsButton.addEventListener("click", openRoomsView);
@@ -146,7 +156,14 @@ function bindGlobalEvents() {
   $syncButton.addEventListener("click", syncNow);
   $addTaskForm.addEventListener("submit", addTask);
   $roomEditForm.addEventListener("submit", submitRoomEdit);
+  $roomEditForm.addEventListener("click", handleRoomEditFormClick);
   $hotelForm.addEventListener("submit", submitHotelForm);
+  $addRoomTagButton.addEventListener("click", addRoomTagFromInput);
+  $roomTagInput.addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addRoomTagFromInput();
+  });
 }
 
 function setupFirebase() {
@@ -212,6 +229,7 @@ function normalizeData(input) {
         id: String(room.id || uid("room")),
         number: String(room.number || ""),
         group: normalizeRoomGroup(room.group),
+        tags: normalizeRoomTags(room.tags),
         state: normalizeState(room.state),
         checks: room.checks || room.tasks || {},
         inProgressBlock: inferInProgressBlock(room),
@@ -261,6 +279,23 @@ function normalizeState(state) {
 
 function normalizeRoomGroup(group) {
   return String(group || "").trim();
+}
+
+function normalizeRoomTags(tags) {
+  const source = Array.isArray(tags) ? tags : String(tags || "").split(",");
+  const seen = new Set();
+
+  return source.reduce((list, tag) => {
+    const value = String(tag || "").trim().replace(/\s+/g, " ");
+    if (!value) return list;
+
+    const key = value.toLocaleLowerCase("es-ES");
+    if (seen.has(key)) return list;
+
+    seen.add(key);
+    list.push(value);
+    return list;
+  }, []);
 }
 
 function normalizeProgressBaseState(progressBaseState, state) {
@@ -417,6 +452,7 @@ function render() {
   $statsView.classList.toggle("hidden", currentView !== "stats");
   renderHotelTabs();
   renderSummary(hotel);
+  renderQuickCleanPanel(hotel);
   renderTemplatePanel(hotel);
   renderStatsPanel();
   renderRooms(hotel);
@@ -736,6 +772,92 @@ function bindStatsEvents() {
   });
 }
 
+function renderQuickCleanPanel(hotel) {
+  if (quickCleanHotelId && quickCleanHotelId !== hotel.id) {
+    closeQuickCleanMode();
+  }
+
+  const isVisible = currentView === "rooms" && quickCleanMode;
+  if (isVisible) syncQuickCleanSelection(hotel);
+  $quickCleanButton.classList.toggle("active", isVisible);
+  $quickCleanButton.textContent = isVisible
+    ? `Aplicar limpiar${quickCleanSelection.size ? ` (${quickCleanSelection.size})` : ""}`
+    : "Limpiar";
+
+  if (!isVisible) {
+    $quickCleanPanel.classList.add("hidden");
+    $quickCleanPanel.innerHTML = "";
+    return;
+  }
+
+  const sortedRooms = [...hotel.rooms].sort(compareRooms);
+  const selectedLabel = quickCleanSelection.size === 1
+    ? "1 habitación seleccionada"
+    : `${quickCleanSelection.size} habitaciones seleccionadas`;
+
+  $quickCleanPanel.classList.remove("hidden");
+  $quickCleanPanel.innerHTML = `
+    <div class="quick-clean-head">
+      <div>
+        <p class="label">Modo rápido</p>
+        <h2>Limpiar</h2>
+      </div>
+      <span class="quick-clean-count">${selectedLabel}</span>
+    </div>
+    <p class="quick-clean-hint">Toca varias habitaciones y confirma. Se aplicará la misma lógica que al marcar LIMPIAR manualmente.</p>
+    <div class="quick-clean-grid" role="list">
+      ${sortedRooms.map(room => {
+        const selected = quickCleanSelection.has(room.id);
+        return `
+          <button
+            class="quick-clean-room ${selected ? "selected" : ""}"
+            type="button"
+            role="listitem"
+            data-quick-clean-room-id="${escapeHtml(room.id)}"
+            aria-pressed="${selected ? "true" : "false"}"
+          >
+            <span class="quick-clean-box" aria-hidden="true"></span>
+            <span class="quick-clean-room-number">${escapeHtml(room.number)}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+    <div class="quick-clean-actions">
+      <button class="soft-btn" type="button" data-quick-clean-cancel>Cancelar</button>
+      <button class="primary-btn" type="button" data-quick-clean-confirm ${quickCleanSelection.size ? "" : "disabled"}>Confirmar limpiar</button>
+    </div>
+  `;
+
+  bindQuickCleanEvents(hotel);
+}
+
+function bindQuickCleanEvents(hotel) {
+  document.querySelectorAll("[data-quick-clean-room-id]").forEach(button => {
+    button.addEventListener("click", event => {
+      const roomId = event.currentTarget.dataset.quickCleanRoomId;
+      if (!roomId) return;
+
+      if (quickCleanSelection.has(roomId)) quickCleanSelection.delete(roomId);
+      else quickCleanSelection.add(roomId);
+
+      renderQuickCleanPanel(hotel);
+    });
+  });
+
+  document.querySelectorAll("[data-quick-clean-cancel]").forEach(button => {
+    button.addEventListener("click", () => {
+      closeQuickCleanMode();
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-quick-clean-confirm]").forEach(button => {
+    button.addEventListener("click", async () => {
+      await applyQuickCleanSelection(hotel);
+    });
+  });
+}
+
 function renderRooms(hotel) {
   const sortedRooms = [...hotel.rooms].sort(compareRooms);
 
@@ -757,6 +879,7 @@ function roomTemplate(hotel, room) {
   const activeTaskIds = getVisualTaskIds(hotel, room);
   const activeSession = isRoomSessionActive(room) ? data.activeSession : null;
   const roomGroup = getRoomGroup(room);
+  const tags = normalizeRoomTags(room.tags);
   const sessionText = activeSession
     ? `Sesión activa · ${formatDuration(getSessionElapsedSeconds(activeSession))}`
     : "Sin sesión";
@@ -802,6 +925,11 @@ function roomTemplate(hotel, room) {
           <div class="room-meta">
             <span class="room-group">${escapeHtml(roomGroup)}</span>
             <span class="room-session-chip ${activeSession ? "active" : ""}" data-session-timer="${escapeHtml(room.id)}">${escapeHtml(sessionText)}</span>
+            ${tags.length ? `
+              <div class="room-tag-list" aria-label="Etiquetas habitación ${escapeHtml(room.number)}">
+                ${tags.map(tag => `<span class="room-tag-chip">${escapeHtml(tag)}</span>`).join("")}
+              </div>
+            ` : ""}
           </div>
         </div>
         <button class="icon-btn small edit-room-btn" type="button" data-room-id="${escapeHtml(room.id)}" aria-label="Editar habitación">✎</button>
@@ -818,14 +946,7 @@ function bindRoomEvents(hotel) {
       const room = findRoom(hotel, event.currentTarget.dataset.roomId);
       if (!room) return;
 
-      const previousState = room.state;
-      room.state = event.currentTarget.value;
-      applyStateRules(hotel, room, true);
-      syncRoomState(hotel, room);
-      registerStatusChange(hotel, room, previousState, room.state);
-      await closeSessionIfRoomCompleted(room, { persist: false });
-      await saveAll();
-      render();
+      await updateRoomState(hotel, room, event.currentTarget.value);
     });
   });
 
@@ -895,6 +1016,79 @@ function bindRoomEvents(hotel) {
   });
 }
 
+async function updateRoomState(hotel, room, nextState, options = {}) {
+  const { persist = true, renderUi = true, saveMessage = "Guardado." } = options;
+  const previousState = room.state;
+
+  room.state = nextState;
+  applyStateRules(hotel, room, true);
+  syncRoomState(hotel, room);
+  registerStatusChange(hotel, room, previousState, room.state);
+  await closeSessionIfRoomCompleted(room, { persist: false });
+
+  if (persist) await saveAll(saveMessage);
+  if (renderUi) render();
+
+  return room;
+}
+
+function syncQuickCleanSelection(hotel) {
+  const validRoomIds = new Set(hotel.rooms.map(room => room.id));
+  quickCleanSelection = new Set([...quickCleanSelection].filter(roomId => validRoomIds.has(roomId)));
+}
+
+function openQuickCleanMode(hotel) {
+  quickCleanMode = true;
+  quickCleanHotelId = hotel.id;
+  quickCleanSelection = new Set();
+}
+
+function closeQuickCleanMode() {
+  quickCleanMode = false;
+  quickCleanHotelId = null;
+  quickCleanSelection = new Set();
+}
+
+async function handleQuickCleanButton() {
+  const hotel = getCurrentHotel();
+
+  if (!quickCleanMode || quickCleanHotelId !== hotel.id) {
+    openQuickCleanMode(hotel);
+    render();
+    return;
+  }
+
+  await applyQuickCleanSelection(hotel);
+}
+
+async function applyQuickCleanSelection(hotel) {
+  syncQuickCleanSelection(hotel);
+
+  if (!quickCleanSelection.size) {
+    setStatus("Selecciona al menos una habitación para limpiar.");
+    return;
+  }
+
+  const targetRooms = [...quickCleanSelection]
+    .map(roomId => findRoom(hotel, roomId))
+    .filter(Boolean);
+
+  for (const room of targetRooms) {
+    await updateRoomState(hotel, room, "LIMPIAR", {
+      persist: false,
+      renderUi: false
+    });
+  }
+
+  const updatedCount = targetRooms.length;
+  closeQuickCleanMode();
+  await saveAll(updatedCount === 1
+    ? "1 habitación marcada como LIMPIAR."
+    : `${updatedCount} habitaciones marcadas como LIMPIAR.`
+  );
+  render();
+}
+
 function addHotel() {
   openHotelModal();
 }
@@ -923,12 +1117,15 @@ async function deleteCurrentHotel() {
 function addRoom() {
   const hotel = getCurrentHotel();
   roomEditContext = { mode: "create", hotelId: hotel.id, roomId: null };
+  roomEditTags = [];
   $roomEditTitle.textContent = "Añadir habitación";
   $saveRoomEditButton.textContent = "Crear";
   $roomEditHotelIdInput.value = hotel.id;
   $roomEditIdInput.value = "";
   $roomEditNumberInput.value = "";
   $roomEditGroupInput.value = "";
+  $roomTagInput.value = "";
+  renderRoomEditTags();
   $roomEditModal.classList.remove("hidden");
   $roomEditModal.setAttribute("aria-hidden", "false");
   setTimeout(() => $roomEditNumberInput.focus(), 0);
@@ -936,12 +1133,15 @@ function addRoom() {
 
 async function editRoom(hotel, room) {
   roomEditContext = { mode: "edit", hotelId: hotel.id, roomId: room.id };
+  roomEditTags = normalizeRoomTags(room.tags);
   $roomEditTitle.textContent = "Editar habitación";
   $saveRoomEditButton.textContent = "Guardar";
   $roomEditHotelIdInput.value = hotel.id;
   $roomEditIdInput.value = room.id;
   $roomEditNumberInput.value = room.number;
   $roomEditGroupInput.value = room.group || inferRoomGroup(room.number);
+  $roomTagInput.value = "";
+  renderRoomEditTags();
   $roomEditModal.classList.remove("hidden");
   $roomEditModal.setAttribute("aria-hidden", "false");
   setTimeout(() => $roomEditNumberInput.focus(), 0);
@@ -949,11 +1149,45 @@ async function editRoom(hotel, room) {
 
 function closeRoomEditModal() {
   roomEditContext = null;
+  roomEditTags = [];
   $roomEditForm.reset();
+  $roomTagEditorList.innerHTML = "";
   $roomEditTitle.textContent = "Editar habitación";
   $saveRoomEditButton.textContent = "Guardar";
   $roomEditModal.classList.add("hidden");
   $roomEditModal.setAttribute("aria-hidden", "true");
+}
+
+function renderRoomEditTags() {
+  if (!roomEditTags.length) {
+    $roomTagEditorList.innerHTML = `<p class="room-tag-empty">Sin etiquetas guardadas.</p>`;
+    return;
+  }
+
+  $roomTagEditorList.innerHTML = roomEditTags.map(tag => `
+    <span class="room-tag-chip editable">
+      <span>${escapeHtml(tag)}</span>
+      <button class="room-tag-remove" type="button" data-remove-room-tag="${escapeHtml(tag)}" aria-label="Quitar etiqueta ${escapeHtml(tag)}">×</button>
+    </span>
+  `).join("");
+}
+
+function addRoomTagFromInput() {
+  const nextTag = $roomTagInput.value.trim();
+  if (!nextTag) return;
+
+  roomEditTags = normalizeRoomTags([...roomEditTags, nextTag]);
+  $roomTagInput.value = "";
+  renderRoomEditTags();
+  $roomTagInput.focus();
+}
+
+function handleRoomEditFormClick(event) {
+  const button = event.target.closest("[data-remove-room-tag]");
+  if (!button) return;
+
+  roomEditTags = roomEditTags.filter(tag => tag !== button.dataset.removeRoomTag);
+  renderRoomEditTags();
 }
 
 async function submitRoomEdit(event) {
@@ -971,6 +1205,7 @@ async function submitRoomEdit(event) {
       id: uid("room"),
       number: nextNumber,
       group: normalizeRoomGroup($roomEditGroupInput.value),
+      tags: normalizeRoomTags(roomEditTags),
       state: "LIMPIAR",
       checks: {},
       inProgressBlock: true,
@@ -992,6 +1227,7 @@ async function submitRoomEdit(event) {
 
   room.number = nextNumber;
   room.group = normalizeRoomGroup($roomEditGroupInput.value);
+  room.tags = normalizeRoomTags(roomEditTags);
   updateRoomReferencesInLogs(hotel, room);
 
   if (data.activeSession && data.activeSession.roomId === room.id && data.activeSession.hotelId === hotel.id) {
@@ -1545,6 +1781,7 @@ function ensureRoomChecks(hotel, room) {
   });
 
   room.checks = checks;
+  room.tags = normalizeRoomTags(room.tags);
   return room;
 }
 
