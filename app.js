@@ -56,9 +56,10 @@ let sessionTickerId = null;
 let roomEditContext = null;
 let roomEditTags = [];
 let currentView = "rooms";
-let quickCleanMode = false;
-let quickCleanHotelId = null;
-let quickCleanSelection = new Set();
+let quickModeOpen = false;
+let quickModeHotelId = null;
+let quickModeSelection = new Set();
+let quickModeTargetState = "LIMPIAR";
 const statsSectionState = {
   busiest: false,
   byRoom: false,
@@ -79,7 +80,7 @@ const $cleanCount = document.querySelector("#cleanCount");
 const $roomsView = document.querySelector("#roomsView");
 const $statsView = document.querySelector("#statsView");
 const $hotelTabs = document.querySelector("#hotelTabs");
-const $quickCleanPanel = document.querySelector("#quickCleanPanel");
+const $quickModePanel = document.querySelector("#quickModePanel");
 const $rooms = document.querySelector("#rooms");
 const $statusMessage = document.querySelector("#statusMessage");
 const $templatePanel = document.querySelector("#templatePanel");
@@ -109,7 +110,7 @@ const $hotelCopyTemplateInput = document.querySelector("#hotelCopyTemplateInput"
 const $addHotelButton = document.querySelector("#addHotelButton");
 const $deleteHotelButton = document.querySelector("#deleteHotelButton");
 const $addRoomButton = document.querySelector("#addRoomButton");
-const $quickCleanButton = document.querySelector("#quickCleanButton");
+const $quickModeButton = document.querySelector("#quickModeButton");
 const $templateButton = document.querySelector("#templateButton");
 const $statsButton = document.querySelector("#statsButton");
 const $backToRoomsButton = document.querySelector("#backToRoomsButton");
@@ -135,7 +136,7 @@ function bindGlobalEvents() {
   $addHotelButton.addEventListener("click", addHotel);
   $deleteHotelButton.addEventListener("click", deleteCurrentHotel);
   $addRoomButton.addEventListener("click", addRoom);
-  $quickCleanButton.addEventListener("click", handleQuickCleanButton);
+  $quickModeButton.addEventListener("click", handleQuickModeButton);
   $templateButton.addEventListener("click", openTemplateModal);
   $statsButton.addEventListener("click", openStatsView);
   $backToRoomsButton.addEventListener("click", openRoomsView);
@@ -275,6 +276,10 @@ function normalizeTasks(tasks) {
 function normalizeState(state) {
   if (state === "PENDIENTE") return "LISTA";
   return STATES.includes(state) ? state : "";
+}
+
+function getStateLabel(state) {
+  return state || "SIN ESTADO";
 }
 
 function normalizeRoomGroup(group) {
@@ -452,7 +457,7 @@ function render() {
   $statsView.classList.toggle("hidden", currentView !== "stats");
   renderHotelTabs();
   renderSummary(hotel);
-  renderQuickCleanPanel(hotel);
+  renderQuickModePanel(hotel);
   renderTemplatePanel(hotel);
   renderStatsPanel();
   renderRooms(hotel);
@@ -772,88 +777,96 @@ function bindStatsEvents() {
   });
 }
 
-function renderQuickCleanPanel(hotel) {
-  if (quickCleanHotelId && quickCleanHotelId !== hotel.id) {
-    closeQuickCleanMode();
+function renderQuickModePanel(hotel) {
+  if (quickModeHotelId && quickModeHotelId !== hotel.id) {
+    closeQuickMode();
   }
 
-  const isVisible = currentView === "rooms" && quickCleanMode;
-  if (isVisible) syncQuickCleanSelection(hotel);
-  $quickCleanButton.classList.toggle("active", isVisible);
-  $quickCleanButton.textContent = isVisible
-    ? `Aplicar limpiar${quickCleanSelection.size ? ` (${quickCleanSelection.size})` : ""}`
-    : "Limpiar";
+  const isVisible = currentView === "rooms" && quickModeOpen;
+  if (isVisible) syncQuickModeSelection(hotel);
+  $quickModeButton.classList.toggle("active", isVisible);
+  $quickModeButton.textContent = "Modo rápido";
 
   if (!isVisible) {
-    $quickCleanPanel.classList.add("hidden");
-    $quickCleanPanel.innerHTML = "";
+    $quickModePanel.classList.add("hidden");
+    $quickModePanel.innerHTML = "";
     return;
   }
 
   const sortedRooms = [...hotel.rooms].sort(compareRooms);
-  const selectedLabel = quickCleanSelection.size === 1
+  const selectedLabel = quickModeSelection.size === 1
     ? "1 habitación seleccionada"
-    : `${quickCleanSelection.size} habitaciones seleccionadas`;
+    : `${quickModeSelection.size} habitaciones seleccionadas`;
 
-  $quickCleanPanel.classList.remove("hidden");
-  $quickCleanPanel.innerHTML = `
-    <div class="quick-clean-head">
+  $quickModePanel.classList.remove("hidden");
+  $quickModePanel.innerHTML = `
+    <div class="quick-mode-head">
       <div>
         <p class="label">Modo rápido</p>
-        <h2>Limpiar</h2>
+        <h2>${escapeHtml(getStateLabel(quickModeTargetState))}</h2>
       </div>
-      <span class="quick-clean-count">${selectedLabel}</span>
+      <span class="quick-mode-count">${selectedLabel}</span>
     </div>
-    <p class="quick-clean-hint">Toca varias habitaciones y confirma. Se aplicará la misma lógica que al marcar LIMPIAR manualmente.</p>
-    <div class="quick-clean-grid" role="list">
+    <div class="quick-mode-toolbar">
+      <label class="quick-mode-state-field">
+        <span>Estado a aplicar</span>
+        <select id="quickModeStateSelect" class="state-select quick-mode-state-select" aria-label="Estado para marcar habitaciones">
+          ${STATES.map(state => `<option value="${state}" ${quickModeTargetState === state ? "selected" : ""}>${escapeHtml(getStateLabel(state))}</option>`).join("")}
+        </select>
+      </label>
+      <p class="quick-mode-hint">Elige un estado, toca las habitaciones y pulsa marcar. Se usa la misma lógica que el selector normal.</p>
+    </div>
+    <div class="quick-mode-grid" role="list">
       ${sortedRooms.map(room => {
-        const selected = quickCleanSelection.has(room.id);
+        const selected = quickModeSelection.has(room.id);
         return `
-          <button
-            class="quick-clean-room ${selected ? "selected" : ""}"
-            type="button"
-            role="listitem"
-            data-quick-clean-room-id="${escapeHtml(room.id)}"
-            aria-pressed="${selected ? "true" : "false"}"
-          >
-            <span class="quick-clean-box" aria-hidden="true"></span>
-            <span class="quick-clean-room-number">${escapeHtml(room.number)}</span>
-          </button>
+          <label class="quick-mode-room ${selected ? "selected" : ""}" role="listitem">
+            <input class="quick-mode-room-input" type="checkbox" data-quick-mode-room-id="${escapeHtml(room.id)}" ${selected ? "checked" : ""} aria-label="Seleccionar habitación ${escapeHtml(room.number)}">
+            <span class="quick-mode-room-number">${escapeHtml(room.number)}</span>
+          </label>
         `;
       }).join("")}
     </div>
-    <div class="quick-clean-actions">
-      <button class="soft-btn" type="button" data-quick-clean-cancel>Cancelar</button>
-      <button class="primary-btn" type="button" data-quick-clean-confirm ${quickCleanSelection.size ? "" : "disabled"}>Confirmar limpiar</button>
+    <div class="quick-mode-actions">
+      <button class="soft-btn" type="button" data-quick-mode-cancel>Cancelar</button>
+      <button class="primary-btn" type="button" data-quick-mode-apply ${quickModeSelection.size ? "" : "disabled"}>Marcar</button>
     </div>
   `;
 
-  bindQuickCleanEvents(hotel);
+  bindQuickModeEvents(hotel);
 }
 
-function bindQuickCleanEvents(hotel) {
-  document.querySelectorAll("[data-quick-clean-room-id]").forEach(button => {
-    button.addEventListener("click", event => {
-      const roomId = event.currentTarget.dataset.quickCleanRoomId;
+function bindQuickModeEvents(hotel) {
+  document.querySelectorAll("[data-quick-mode-room-id]").forEach(input => {
+    input.addEventListener("change", event => {
+      const roomId = event.currentTarget.dataset.quickModeRoomId;
       if (!roomId) return;
 
-      if (quickCleanSelection.has(roomId)) quickCleanSelection.delete(roomId);
-      else quickCleanSelection.add(roomId);
+      if (event.currentTarget.checked) quickModeSelection.add(roomId);
+      else quickModeSelection.delete(roomId);
 
-      renderQuickCleanPanel(hotel);
+      renderQuickModePanel(hotel);
     });
   });
 
-  document.querySelectorAll("[data-quick-clean-cancel]").forEach(button => {
+  const stateSelect = document.querySelector("#quickModeStateSelect");
+  if (stateSelect) {
+    stateSelect.addEventListener("change", event => {
+      quickModeTargetState = normalizeState(event.currentTarget.value);
+      renderQuickModePanel(hotel);
+    });
+  }
+
+  document.querySelectorAll("[data-quick-mode-cancel]").forEach(button => {
     button.addEventListener("click", () => {
-      closeQuickCleanMode();
+      closeQuickMode();
       render();
     });
   });
 
-  document.querySelectorAll("[data-quick-clean-confirm]").forEach(button => {
+  document.querySelectorAll("[data-quick-mode-apply]").forEach(button => {
     button.addEventListener("click", async () => {
-      await applyQuickCleanSelection(hotel);
+      await applyQuickModeSelection(hotel);
     });
   });
 }
@@ -885,9 +898,8 @@ function roomTemplate(hotel, room) {
     : "Sin sesión";
 
   const stateOptions = STATES.map(state => {
-    const label = state || "SIN ESTADO";
     const selected = room.state === state ? "selected" : "";
-    return `<option value="${state}" ${selected}>${label}</option>`;
+    return `<option value="${state}" ${selected}>${getStateLabel(state)}</option>`;
   }).join("");
 
   const tasks = hotel.tasks.map(task => {
@@ -1032,59 +1044,61 @@ async function updateRoomState(hotel, room, nextState, options = {}) {
   return room;
 }
 
-function syncQuickCleanSelection(hotel) {
+function syncQuickModeSelection(hotel) {
   const validRoomIds = new Set(hotel.rooms.map(room => room.id));
-  quickCleanSelection = new Set([...quickCleanSelection].filter(roomId => validRoomIds.has(roomId)));
+  quickModeSelection = new Set([...quickModeSelection].filter(roomId => validRoomIds.has(roomId)));
 }
 
-function openQuickCleanMode(hotel) {
-  quickCleanMode = true;
-  quickCleanHotelId = hotel.id;
-  quickCleanSelection = new Set();
+function openQuickMode(hotel) {
+  quickModeOpen = true;
+  quickModeHotelId = hotel.id;
+  quickModeSelection = new Set();
+  quickModeTargetState = STATES.includes(quickModeTargetState) ? quickModeTargetState : "LIMPIAR";
 }
 
-function closeQuickCleanMode() {
-  quickCleanMode = false;
-  quickCleanHotelId = null;
-  quickCleanSelection = new Set();
+function closeQuickMode() {
+  quickModeOpen = false;
+  quickModeHotelId = null;
+  quickModeSelection = new Set();
 }
 
-async function handleQuickCleanButton() {
+async function handleQuickModeButton() {
   const hotel = getCurrentHotel();
 
-  if (!quickCleanMode || quickCleanHotelId !== hotel.id) {
-    openQuickCleanMode(hotel);
-    render();
-    return;
+  if (!quickModeOpen || quickModeHotelId !== hotel.id) {
+    openQuickMode(hotel);
+  } else {
+    closeQuickMode();
   }
 
-  await applyQuickCleanSelection(hotel);
+  render();
 }
 
-async function applyQuickCleanSelection(hotel) {
-  syncQuickCleanSelection(hotel);
+async function applyQuickModeSelection(hotel) {
+  syncQuickModeSelection(hotel);
 
-  if (!quickCleanSelection.size) {
-    setStatus("Selecciona al menos una habitación para limpiar.");
+  if (!quickModeSelection.size) {
+    setStatus("Selecciona al menos una habitación.");
     return;
   }
 
-  const targetRooms = [...quickCleanSelection]
+  const targetRooms = [...quickModeSelection]
     .map(roomId => findRoom(hotel, roomId))
     .filter(Boolean);
 
   for (const room of targetRooms) {
-    await updateRoomState(hotel, room, "LIMPIAR", {
+    await updateRoomState(hotel, room, quickModeTargetState, {
       persist: false,
       renderUi: false
     });
   }
 
   const updatedCount = targetRooms.length;
-  closeQuickCleanMode();
+  const targetStateLabel = getStateLabel(quickModeTargetState);
+  closeQuickMode();
   await saveAll(updatedCount === 1
-    ? "1 habitación marcada como LIMPIAR."
-    : `${updatedCount} habitaciones marcadas como LIMPIAR.`
+    ? `1 habitación marcada como ${targetStateLabel}.`
+    : `${updatedCount} habitaciones marcadas como ${targetStateLabel}.`
   );
   render();
 }

@@ -253,7 +253,7 @@ h2 {
   color: #fde68a;
 }
 
-.quick-clean-panel {
+.quick-mode-panel {
   margin-bottom: 12px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -263,15 +263,15 @@ h2 {
   backdrop-filter: blur(18px);
 }
 
-.quick-clean-head,
-.quick-clean-actions {
+.quick-mode-head,
+.quick-mode-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.quick-clean-count {
+.quick-mode-count {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -284,68 +284,89 @@ h2 {
   font-weight: 820;
 }
 
-.quick-clean-hint {
-  margin: 10px 0 0;
+.quick-mode-toolbar {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.quick-mode-state-field {
+  display: grid;
+  gap: 6px;
+}
+
+.quick-mode-state-field span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.quick-mode-hint {
+  margin: 0;
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.35;
 }
 
-.quick-clean-grid {
+.quick-mode-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 8px;
   margin-top: 14px;
 }
 
-.quick-clean-room {
+.quick-mode-room {
+  position: relative;
   display: grid;
+  place-items: center;
   justify-items: center;
-  gap: 8px;
   min-height: 84px;
   padding: 10px 8px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
+  cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, transform 0.18s ease;
 }
 
-.quick-clean-room:hover,
-.quick-clean-room:focus-visible {
+.quick-mode-room:hover,
+.quick-mode-room:focus-within {
   border-color: rgba(251, 191, 36, 0.42);
   background: rgba(251, 191, 36, 0.1);
   outline: none;
 }
 
-.quick-clean-room.selected {
+.quick-mode-room.selected {
   border-color: rgba(251, 191, 36, 0.6);
   background: linear-gradient(160deg, rgba(251, 191, 36, 0.2), rgba(255, 255, 255, 0.08));
 }
 
-.quick-clean-box {
-  display: none;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 7px;
-  background: rgba(8, 17, 31, 0.5);
-  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+.quick-mode-room-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.quick-clean-room.selected .quick-clean-box {
-  border-color: rgba(251, 191, 36, 0.75);
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.95), rgba(245, 158, 11, 0.9));
-  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16);
+.quick-mode-room-input:focus-visible + .quick-mode-room-number {
+  outline: 2px solid rgba(251, 191, 36, 0.75);
+  outline-offset: 8px;
+  border-radius: 12px;
 }
 
-.quick-clean-room-number {
+.quick-mode-room-number {
   font-size: 0.9rem;
   font-weight: 900;
   letter-spacing: -0.03em;
 }
 
-.quick-clean-actions {
+.quick-mode-actions {
   margin-top: 14px;
 }
 
@@ -1104,7 +1125,7 @@ h2 {
     flex-direction: column;
   }
 
-  .quick-clean-head {
+  .quick-mode-head {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1143,7 +1164,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .quick-clean-actions {
+  .quick-mode-actions {
     display: grid;
   }
 }
