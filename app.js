@@ -248,7 +248,9 @@ function normalizeData(input) {
     : normalizedHotels[0].id;
 
   // Export-ready structures for a future Google Sheets sync via Apps Script.
-  const timeLogs = Array.isArray(input.timeLogs) ? input.timeLogs.map(normalizeTimeLog).filter(Boolean) : [];
+  const timeLogs = Array.isArray(input.timeLogs)
+    ? consolidateTimeLogs(input.timeLogs.map(normalizeTimeLog).filter(Boolean))
+    : [];
   const statusLogs = Array.isArray(input.statusLogs) ? input.statusLogs.map(normalizeStatusLog).filter(Boolean) : [];
 
   const normalizedData = {
@@ -280,6 +282,27 @@ function normalizeState(state) {
 
 function getStateLabel(state) {
   return state || "SIN ESTADO";
+}
+
+function normalizePauseIntervals(intervals) {
+  if (!Array.isArray(intervals)) return [];
+
+  return intervals
+    .map(interval => {
+      if (!interval || !interval.pausedAt) return null;
+
+      return {
+        pausedAt: Number(interval.pausedAt),
+        resumedAt: interval.resumedAt ? Number(interval.resumedAt) : null
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeSessionDateKey(date, timestamp) {
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  if (timestamp) return formatSessionDateKey(timestamp);
+  return "";
 }
 
 function normalizeRoomGroup(group) {
@@ -319,6 +342,16 @@ function inferInProgressBlock(room) {
 function normalizeTimeLog(log) {
   if (!log) return null;
 
+  const startedAt = Number(log.startedAt || 0);
+  const endedAt = Number(log.endedAt || 0);
+  const totalActiveMs = Math.max(0, Number(
+    log.totalActiveMs !== undefined
+      ? log.totalActiveMs
+      : Number(log.durationSeconds || 0) * 1000
+  ));
+  const durationSeconds = Math.max(0, Math.round(totalActiveMs / 1000));
+  const date = normalizeSessionDateKey(log.date, startedAt);
+
   return {
     id: String(log.id || uid("timelog")),
     hotelId: String(log.hotelId || ""),
@@ -328,13 +361,18 @@ function normalizeTimeLog(log) {
     roomGroup: String(log.roomGroup || ""),
     workType: log.workType === "refresh" ? "refresh" : "cleaning",
     statusAtStart: normalizeState(log.statusAtStart),
-    date: String(log.date || ""),
-    startTime: String(log.startTime || formatTimeLabel(Number(log.startedAt || 0))),
-    endTime: String(log.endTime || formatTimeLabel(Number(log.endedAt || 0))),
-    startedAt: Number(log.startedAt || 0),
-    endedAt: Number(log.endedAt || 0),
-    durationSeconds: Math.max(0, Number(log.durationSeconds || 0)),
-    durationReadable: String(log.durationReadable || formatDuration(Number(log.durationSeconds || 0)))
+    date,
+    startTime: String(log.startTime || formatTimeLabel(startedAt || endedAt || Date.now())),
+    endTime: String(log.endTime || formatTimeLabel(endedAt || startedAt || Date.now())),
+    startedAt,
+    pausedAt: log.pausedAt ? Number(log.pausedAt) : null,
+    resumedAt: log.resumedAt ? Number(log.resumedAt) : null,
+    endedAt,
+    totalActiveMs,
+    isPaused: Boolean(log.isPaused),
+    pauseIntervals: normalizePauseIntervals(log.pauseIntervals),
+    durationSeconds,
+    durationReadable: String(log.durationReadable || formatDuration(durationSeconds))
   };
 }
 
@@ -372,9 +410,117 @@ function normalizeActiveSession(session, hotels) {
     roomGroup: String(session.roomGroup || getRoomGroup(room)),
     statusAtStart: normalizeState(session.statusAtStart),
     workType: session.workType === "refresh" ? "refresh" : "cleaning",
+    date: normalizeSessionDateKey(session.date, Number(session.startedAt)),
     startedAt: Number(session.startedAt),
+    pausedAt: session.pausedAt ? Number(session.pausedAt) : null,
+    resumedAt: session.resumedAt ? Number(session.resumedAt) : null,
+    endedAt: session.endedAt ? Number(session.endedAt) : null,
+    totalActiveMs: Math.max(0, Number(session.totalActiveMs || 0)),
+    isPaused: Boolean(session.isPaused),
+    pauseIntervals: normalizePauseIntervals(session.pauseIntervals),
     startedDate: String(session.startedDate || formatDateKey(Number(session.startedAt))),
     startedTimeLabel: String(session.startedTimeLabel || formatTimeLabel(Number(session.startedAt)))
+  };
+}
+
+function buildDailyTimeLogKey(log) {
+  return `${log.hotelId}:${log.roomId}:${log.date || normalizeSessionDateKey("", log.startedAt)}`;
+}
+
+function mergeTimeLogs(existingLog, incomingLog) {
+  const base = { ...existingLog };
+  const startA = base.startedAt || Number.MAX_SAFE_INTEGER;
+  const startB = incomingLog.startedAt || Number.MAX_SAFE_INTEGER;
+
+  base.startedAt = Math.min(startA, startB);
+  if (base.startedAt === Number.MAX_SAFE_INTEGER) base.startedAt = 0;
+  base.endedAt = Math.max(base.endedAt || 0, incomingLog.endedAt || 0);
+  base.totalActiveMs = Math.max(0, Number(base.totalActiveMs || 0) + Number(incomingLog.totalActiveMs || 0));
+  base.durationSeconds = Math.round(base.totalActiveMs / 1000);
+  base.durationReadable = formatDuration(base.durationSeconds);
+  base.date = base.date || incomingLog.date || normalizeSessionDateKey("", base.startedAt);
+  base.startTime = formatTimeLabel(base.startedAt || Date.now());
+  base.endTime = formatTimeLabel(base.endedAt || base.startedAt || Date.now());
+  base.hotelName = incomingLog.hotelName || base.hotelName;
+  base.roomNumber = incomingLog.roomNumber || base.roomNumber;
+  base.roomGroup = incomingLog.roomGroup || base.roomGroup;
+  base.statusAtStart = base.statusAtStart || incomingLog.statusAtStart;
+  base.workType = base.workType || incomingLog.workType;
+  base.pausedAt = incomingLog.pausedAt || base.pausedAt || null;
+  base.resumedAt = incomingLog.resumedAt || base.resumedAt || null;
+  base.pauseIntervals = [...normalizePauseIntervals(base.pauseIntervals), ...normalizePauseIntervals(incomingLog.pauseIntervals)];
+  base.isPaused = false;
+  return base;
+}
+
+function consolidateTimeLogs(logs) {
+  const merged = new Map();
+
+  logs.forEach(log => {
+    const normalizedLog = normalizeTimeLog(log);
+    if (!normalizedLog) return;
+
+    const key = buildDailyTimeLogKey(normalizedLog);
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        ...normalizedLog,
+        date: normalizedLog.date || normalizeSessionDateKey("", normalizedLog.startedAt)
+      });
+      return;
+    }
+
+    merged.set(key, mergeTimeLogs(existing, normalizedLog));
+  });
+
+  return [...merged.values()].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+}
+
+function getSessionRunningSince(session) {
+  return session.resumedAt || session.startedAt;
+}
+
+function getSessionActiveMs(session, now = Date.now()) {
+  if (!session) return 0;
+
+  const totalActiveMs = Math.max(0, Number(session.totalActiveMs || 0));
+  if (session.isPaused) return totalActiveMs;
+
+  const runningSince = getSessionRunningSince(session);
+  if (!runningSince) return totalActiveMs;
+
+  return totalActiveMs + Math.max(0, now - runningSince);
+}
+
+function findDailyTimeLog(hotelId, roomId, date) {
+  return data.timeLogs.find(log => log.hotelId === hotelId && log.roomId === roomId && log.date === date);
+}
+
+function getTodayRoomSummary(hotel, room) {
+  const today = formatSessionDateKey(Date.now());
+  const persistedLog = findDailyTimeLog(hotel.id, room.id, today);
+  const activeSession = isRoomSessionActive(room) ? data.activeSession : null;
+
+  let totalActiveMs = persistedLog ? Number(persistedLog.totalActiveMs || 0) : 0;
+  let status = persistedLog ? "finalizada" : "sin_sesion";
+
+  if (activeSession) {
+    totalActiveMs += getSessionActiveMs(activeSession);
+    status = activeSession.isPaused ? "pausada" : "activa";
+  }
+
+  return {
+    totalActiveMs,
+    totalActiveSeconds: Math.round(totalActiveMs / 1000),
+    status,
+    statusLabel:
+      status === "activa"
+        ? "Activa"
+        : status === "pausada"
+          ? "Pausada"
+          : status === "finalizada"
+            ? "Finalizada"
+            : "Sin sesión"
   };
 }
 
@@ -891,11 +1037,12 @@ function roomTemplate(hotel, room) {
   const progress = calculateRoomProgress(hotel, room);
   const activeTaskIds = getVisualTaskIds(hotel, room);
   const activeSession = isRoomSessionActive(room) ? data.activeSession : null;
+  const sessionSummary = getTodayRoomSummary(hotel, room);
   const roomGroup = getRoomGroup(room);
   const tags = normalizeRoomTags(room.tags);
   const sessionText = activeSession
-    ? `Sesión activa · ${formatDuration(getSessionElapsedSeconds(activeSession))}`
-    : "Sin sesión";
+    ? `${sessionSummary.statusLabel} · ${formatDuration(sessionSummary.totalActiveSeconds)}`
+    : sessionSummary.statusLabel;
 
   const stateOptions = STATES.map(state => {
     const selected = room.state === state ? "selected" : "";
@@ -937,6 +1084,12 @@ function roomTemplate(hotel, room) {
           <div class="room-meta">
             <span class="room-group">${escapeHtml(roomGroup)}</span>
             <span class="room-session-chip ${activeSession ? "active" : ""}" data-session-timer="${escapeHtml(room.id)}">${escapeHtml(sessionText)}</span>
+            <span class="room-session-total-chip" data-session-total="${escapeHtml(room.id)}">${escapeHtml(`Hoy · ${formatDuration(sessionSummary.totalActiveSeconds)}`)}</span>
+            ${activeSession ? `
+              <button class="tiny-btn room-session-action-btn" type="button" data-room-session-pause-btn="${escapeHtml(room.id)}">
+                ${activeSession.isPaused ? "Reanudar" : "Pausar"}
+              </button>
+            ` : ""}
             ${tags.length ? `
               <div class="room-tag-list" aria-label="Etiquetas habitación ${escapeHtml(room.number)}">
                 ${tags.map(tag => `<span class="room-tag-chip">${escapeHtml(tag)}</span>`).join("")}
@@ -997,6 +1150,16 @@ function bindRoomEvents(hotel) {
       if (!room) return;
 
       await toggleRoomSession(hotel, room);
+    });
+  });
+
+  document.querySelectorAll("[data-room-session-pause-btn]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const room = findRoom(hotel, event.currentTarget.dataset.roomSessionPauseBtn);
+      if (!room || !isRoomSessionActive(room)) return;
+
+      if (data.activeSession.isPaused) await resumeActiveSession(room);
+      else await pauseActiveSession(room);
     });
   });
 
@@ -1427,10 +1590,18 @@ function startRoomSession(hotel, room) {
     roomGroup: getRoomGroup(room),
     statusAtStart: room.state,
     workType: room.state === "OCUPADA" ? "refresh" : "cleaning",
+    date: formatSessionDateKey(startedAt),
     startedAt,
+    pausedAt: null,
+    resumedAt: null,
+    endedAt: null,
+    totalActiveMs: 0,
+    isPaused: false,
+    pauseIntervals: [],
     startedDate: formatDateKey(startedAt),
     startedTimeLabel: formatTimeLabel(startedAt)
   };
+  syncSessionTicker();
 }
 
 async function stopActiveSession(options = {}) {
@@ -1438,9 +1609,12 @@ async function stopActiveSession(options = {}) {
 
   const session = data.activeSession;
   const endedAt = Date.now();
-  const durationSeconds = Math.max(1, Math.round((endedAt - session.startedAt) / 1000));
-  const timeLog = {
-    id: uid("timelog"),
+  const totalActiveMs = Math.max(1000, getSessionActiveMs(session, endedAt));
+  const durationSeconds = Math.max(1, Math.round(totalActiveMs / 1000));
+  const date = session.date || formatSessionDateKey(session.startedAt);
+  const existingTimeLog = findDailyTimeLog(session.hotelId, session.roomId, date);
+  const nextTimeLog = {
+    id: existingTimeLog ? existingTimeLog.id : uid("timelog"),
     hotelId: session.hotelId,
     hotelName: session.hotelName,
     roomId: session.roomId,
@@ -1448,24 +1622,71 @@ async function stopActiveSession(options = {}) {
     roomGroup: session.roomGroup,
     workType: session.workType,
     statusAtStart: session.statusAtStart,
-    date: formatDateKey(session.startedAt),
+    date,
     startTime: formatTimeLabel(session.startedAt),
     endTime: formatTimeLabel(endedAt),
     startedAt: session.startedAt,
+    pausedAt: session.pausedAt,
+    resumedAt: session.resumedAt,
     endedAt,
+    totalActiveMs,
+    isPaused: false,
+    pauseIntervals: normalizePauseIntervals(session.pauseIntervals),
     durationSeconds,
     durationReadable: formatDuration(durationSeconds)
   };
+  const mergedTimeLog = existingTimeLog ? mergeTimeLogs(existingTimeLog, nextTimeLog) : nextTimeLog;
 
-  data.timeLogs.unshift(timeLog);
+  data.timeLogs = consolidateTimeLogs([
+    ...data.timeLogs.filter(log => !(log.hotelId === session.hotelId && log.roomId === session.roomId && log.date === date)),
+    mergedTimeLog
+  ]);
   data.activeSession = null;
   syncSessionTicker();
 
   if (options.persist !== false) {
-    await saveAll(options.saveMessage || `Sesión guardada: ${timeLog.roomNumber}.`);
+    await saveAll(options.saveMessage || `Sesión guardada: ${mergedTimeLog.roomNumber}.`);
   }
 
-  return timeLog;
+  return mergedTimeLog;
+}
+
+async function pauseActiveSession(room) {
+  if (!data.activeSession || data.activeSession.isPaused) return null;
+
+  const pausedAt = Date.now();
+  data.activeSession.totalActiveMs = getSessionActiveMs(data.activeSession, pausedAt);
+  data.activeSession.pausedAt = pausedAt;
+  data.activeSession.isPaused = true;
+  data.activeSession.pauseIntervals = [
+    ...normalizePauseIntervals(data.activeSession.pauseIntervals),
+    {
+      pausedAt,
+      resumedAt: null
+    }
+  ];
+  syncSessionTicker();
+  await saveAll(`Sesión pausada: ${room.number}.`);
+  render();
+  return data.activeSession;
+}
+
+async function resumeActiveSession(room) {
+  if (!data.activeSession || !data.activeSession.isPaused) return null;
+
+  const resumedAt = Date.now();
+  const intervals = normalizePauseIntervals(data.activeSession.pauseIntervals);
+  const lastInterval = intervals[intervals.length - 1];
+  if (lastInterval && !lastInterval.resumedAt) lastInterval.resumedAt = resumedAt;
+
+  data.activeSession.pauseIntervals = intervals;
+  data.activeSession.pausedAt = null;
+  data.activeSession.resumedAt = resumedAt;
+  data.activeSession.isPaused = false;
+  syncSessionTicker();
+  await saveAll(`Sesión reanudada: ${room.number}.`);
+  render();
+  return data.activeSession;
 }
 
 function registerStatusChange(hotel, room, previousState, nextState) {
@@ -1486,7 +1707,7 @@ function registerStatusChange(hotel, room, previousState, nextState) {
 }
 
 function syncSessionTicker() {
-  if (data.activeSession) {
+  if (data.activeSession && !data.activeSession.isPaused) {
     if (!sessionTickerId) {
       sessionTickerId = setInterval(updateSessionTimerLabels, SESSION_TICK_MS);
     }
@@ -1503,18 +1724,26 @@ function syncSessionTicker() {
 function updateSessionTimerLabels() {
   if (!data.activeSession) return;
 
-  const timerText = `Sesión activa · ${formatDuration(getSessionElapsedSeconds(data.activeSession))}`;
+  const statusLabel = data.activeSession.isPaused ? "Pausada" : "Activa";
+  const elapsedSeconds = getSessionElapsedSeconds(data.activeSession);
+  const activeHotel = data.hotels.find(hotel => hotel.id === data.activeSession.hotelId);
+  const activeRoom = activeHotel ? activeHotel.rooms.find(room => room.id === data.activeSession.roomId) : null;
+  const todaySummary = activeHotel && activeRoom ? getTodayRoomSummary(activeHotel, activeRoom) : null;
+  const timerText = `${statusLabel} · ${formatDuration(elapsedSeconds)}`;
   document.querySelectorAll(`[data-session-timer="${data.activeSession.roomId}"]`).forEach(node => {
     node.textContent = timerText;
+  });
+  document.querySelectorAll(`[data-session-total="${data.activeSession.roomId}"]`).forEach(node => {
+    node.textContent = `Hoy · ${formatDuration(todaySummary ? todaySummary.totalActiveSeconds : elapsedSeconds)}`;
   });
 }
 
 function getSessionElapsedSeconds(session) {
-  return Math.max(0, Math.round((Date.now() - session.startedAt) / 1000));
+  return Math.max(0, Math.round(getSessionActiveMs(session) / 1000));
 }
 
 function calculateStats() {
-  const timeLogs = [...data.timeLogs];
+  const timeLogs = consolidateTimeLogs(data.timeLogs);
   const statusLogs = [...data.statusLogs];
   const roomMap = buildRoomStatsMap();
 
@@ -1528,7 +1757,7 @@ function calculateStats() {
       sessionCount: 0
     };
 
-    entry.totalSeconds += log.durationSeconds;
+    entry.totalSeconds += Math.round(Number(log.totalActiveMs || 0) / 1000);
     entry.sessionCount += 1;
     byRoomMap.set(key, entry);
   });
@@ -1543,12 +1772,12 @@ function calculateStats() {
       sessionCount: 0
     };
 
-    entry.totalSeconds += log.durationSeconds;
+    entry.totalSeconds += Math.round(Number(log.totalActiveMs || 0) / 1000);
     entry.sessionCount += 1;
     byGroupMap.set(groupKey, entry);
 
     const roomEntry = roomMap.get(key) || createRoomStatsEntry(log.hotelName, log.roomNumber, log.roomGroup);
-    roomEntry.totalSeconds += log.durationSeconds;
+    roomEntry.totalSeconds += Math.round(Number(log.totalActiveMs || 0) / 1000);
     roomEntry.sessionCount += 1;
     roomMap.set(key, roomEntry);
   });
@@ -1599,7 +1828,7 @@ function calculateStats() {
       .map(log => ({
         ...log,
         roomLabel: buildRoomLabel(log.hotelName, log.roomNumber),
-        dateLabel: formatDateTimeLabel(log.startedAt),
+        dateLabel: `${formatDateKey(log.startedAt)} · ${log.startTime}-${log.endTime}`,
         workTypeLabel: log.workType === "refresh" ? "Repaso ocupada" : "Limpieza completa"
       })),
     recentStatusLogs: statusLogs
@@ -1693,7 +1922,7 @@ async function clearLogType(logType) {
 // Hoteles, Habitaciones, Sesiones, CambiosEstado, ResumenHabitaciones,
 // ResumenGrupos y ResumenGeneral.
 function exportTimeLogsForSheets() {
-  return data.timeLogs.map(log => ({
+  return consolidateTimeLogs(data.timeLogs).map(log => ({
     id: log.id,
     hotelId: log.hotelId,
     hotelName: log.hotelName,
@@ -1706,7 +1935,12 @@ function exportTimeLogsForSheets() {
     startTime: log.startTime,
     endTime: log.endTime,
     startedAt: log.startedAt,
+    pausedAt: log.pausedAt,
+    resumedAt: log.resumedAt,
     endedAt: log.endedAt,
+    totalActiveMs: log.totalActiveMs,
+    isPaused: log.isPaused,
+    pauseIntervals: JSON.stringify(log.pauseIntervals || []),
     durationSeconds: log.durationSeconds,
     durationReadable: log.durationReadable
   }));
@@ -2064,6 +2298,14 @@ function formatDuration(totalSeconds) {
 
 function formatDateKey(timestamp) {
   return new Date(timestamp).toLocaleDateString("es-ES");
+}
+
+function formatSessionDateKey(timestamp) {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatTimeLabel(timestamp) {

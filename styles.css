@@ -626,7 +626,8 @@ h2 {
 }
 
 .room-group,
-.room-session-chip {
+.room-session-chip,
+.room-session-total-chip {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -648,6 +649,18 @@ h2 {
 
 .room-session-chip {
   color: var(--text);
+}
+
+.room-session-total-chip {
+  color: #dbe7f3;
+}
+
+.room-session-action-btn {
+  width: auto;
+  min-width: 72px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 850;
 }
 
 .room-tag-chip {
@@ -686,6 +699,11 @@ h2 {
   color: #dff8ff;
   border-color: rgba(56, 189, 248, 0.35);
   background: rgba(56, 189, 248, 0.14);
+}
+
+.room-card[data-session-active="true"] .room-session-total-chip {
+  border-color: rgba(56, 189, 248, 0.22);
+  background: rgba(56, 189, 248, 0.08);
 }
 
 .state-row {
