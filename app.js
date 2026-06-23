@@ -1018,7 +1018,7 @@ function bindQuickModeEvents(hotel) {
 }
 
 function renderRooms(hotel) {
-  const sortedRooms = [...hotel.rooms].sort(compareRooms);
+  const sortedRooms = [...hotel.rooms].sort((a, b) => compareRoomsForHotel(hotel, a, b));
 
   if (!sortedRooms.length) {
     $rooms.innerHTML = `
@@ -1031,6 +1031,22 @@ function renderRooms(hotel) {
 
   $rooms.innerHTML = sortedRooms.map(room => roomTemplate(hotel, room)).join("");
   bindRoomEvents(hotel);
+}
+
+function compareRoomsForHotel(hotel, a, b) {
+  const activeRoomId =
+    data.activeSession && data.activeSession.hotelId === hotel.id
+      ? data.activeSession.roomId
+      : null;
+
+  const aIsActiveSessionRoom = activeRoomId === a.id;
+  const bIsActiveSessionRoom = activeRoomId === b.id;
+
+  if (aIsActiveSessionRoom !== bIsActiveSessionRoom) {
+    return aIsActiveSessionRoom ? -1 : 1;
+  }
+
+  return compareRooms(a, b);
 }
 
 function roomTemplate(hotel, room) {
